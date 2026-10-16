@@ -1,0 +1,11 @@
+# Build artifacts
+bin/
+api
+
+# Local env files — NEVER baked into an image
+.env
+.env.*
+
+# Test artifacts
+*_test.go.out
+coverage.out

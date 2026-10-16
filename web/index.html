@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Content-Security-Policy.
+         See docs/05-SECURITY.md §6.4: the point is that a compromised
+         dependency cannot exfiltrate the local replica to an arbitrary host.
+
+         `connect-src` needs an explicit entry for the Cloud Run API because the
+         SPA and the API are on different origins. VITE_API_ORIGIN supplies the
+         COMPLETE source list (including 'self'), so there is one place to get it
+         right. Default in .env is `'self'`, which is correct for local
+         development through the Vite proxy.
+
+         It must never be left blank: a dangling space after `connect-src` is a
+         malformed source list, and browsers may discard the whole directive.
+
+         'unsafe-inline' is required for style-src ONLY, because Tailwind v4 and
+         Vite inject styles at runtime. script-src stays strict. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob:;
+               font-src 'self';
+               connect-src %VITE_API_ORIGIN%;
+               object-src 'none';
+               base-uri 'none';
+               form-action 'self';
+               frame-ancestors 'none'"
+    />
+
+    <meta name="theme-color" content="#0d9488" />
+    <meta
+      name="description"
+      content="Offline-capable patient records and referral management for primary healthcare centres"
+    />
+
+    <title>PHC Patient Records</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

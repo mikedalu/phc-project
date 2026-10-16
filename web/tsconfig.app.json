@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+
+    /* Strictness. These are not optional — see docs/04-CODING-STANDARDS.md §4.
+       `noUncheckedIndexedAccess` in particular catches the array-access bugs
+       that otherwise only appear in production with a real patient list. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+
+    /* Skip type-checking of .d.ts files in node_modules.
+       Required here: dexie-react-hooks ships a `useDocument` declaration that
+       imports its OPTIONAL peers (`y-dexie`, `yjs`), which we do not install.
+       Without this, `tsc` fails on a dependency we never call. Our own source is
+       still fully checked under `strict`. */
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+
+    /* Path alias, mirrored in vite.config.ts.
+       NOTE: TypeScript 7 REMOVED `baseUrl` (error TS5102). Paths are now
+       resolved relative to this tsconfig file, so "./src/*" is required —
+       a bare "src/*" no longer works. This is a real TS7 breaking change. */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src"]
+}

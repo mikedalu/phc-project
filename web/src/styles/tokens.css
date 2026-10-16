@@ -1,0 +1,160 @@
+/* web/src/styles/tokens.css
+   Imported once, after tailwindcss, in web/src/app/main.css:
+     @import "tailwindcss";
+     @import "./styles/tokens.css";
+     @import "./styles/print.css";
+
+   This file is the single source of truth for the design system.
+   See docs/03-UI-PATTERNS.md §2. Do not add a hex colour in a component —
+   add a token here first.
+*/
+@theme {
+  /* ---------- Neutral ramp (cool grey, pinned so a Tailwind bump cannot move it) ---------- */
+  --color-grey-50:  #F8FAFC;   /* app background, zebra rows, skeletons */
+  --color-grey-100: #F1F5F9;   /* sunken surfaces, disabled fills, table header */
+  --color-grey-200: #E2E8F0;   /* DECORATIVE borders only: card outline, row rule */
+  --color-grey-300: #CBD5E1;   /* dividers on grey-50, chart gridlines */
+  --color-grey-400: #94A3B8;   /* muted icons, placeholder-ish text, disabled text */
+  --color-grey-450: #7C8BA1;   /* CONTROL BOUNDARY. 3.46:1 on white. See 2.3 */
+  --color-grey-500: #64748B;   /* secondary body text (4.76:1) */
+  --color-grey-600: #475569;   /* body text on grey-100 */
+  --color-grey-700: #334155;   /* strong body text */
+  --color-grey-800: #1E293B;   /* headings */
+  --color-grey-900: #0F172A;   /* primary text, sidebar-active, toast surface */
+  --color-grey-950: #020617;   /* print fallback, never a surface */
+
+  /* ---------- ONE brand colour: calm clinical teal ---------- */
+  --color-primary-50:  #F0FDFA;
+  --color-primary-100: #CCFBF1;  /* primary-soft */
+  --color-primary-200: #99F6E4;  /* soft border, selected row outline */
+  --color-primary-300: #5EEAD4;  /* chart series, focus ring on dark surfaces */
+  --color-primary-600: #0D9488;  /* DECORATIVE ONLY - 3.74:1 with white, fails AA text */
+  --color-primary-700: #0F766E;  /* THE primary. 5.47:1 with white */
+  --color-primary-800: #115E59;  /* primary hover. 7.51:1 with white */
+  --color-primary-900: #134E4A;  /* primary active/pressed. 9.48:1 with white */
+
+  --color-primary:        var(--color-primary-700);
+  --color-primary-hover:  var(--color-primary-800);
+  --color-primary-active: var(--color-primary-900);
+  --color-primary-soft:   var(--color-primary-100);
+  --color-primary-fg:     var(--color-primary-900); /* text on primary-soft: 8.41:1 */
+
+  /* ---------- Semantic ---------- */
+  --color-success:      #15803D;  /* 5.02:1 with white */
+  --color-success-soft: #DCFCE7;
+  --color-success-fg:   #14532D;  /* on success-soft: 8.30:1 */
+  --color-warning:      #B45309;  /* 5.02:1 with white */
+  --color-warning-soft: #FEF3C7;
+  --color-warning-fg:   #78350F;  /* on warning-soft: 8.15:1 */
+  --color-danger:       #B91C1C;  /* 6.47:1 with white */
+  --color-danger-soft:  #FEE2E2;
+  --color-danger-fg:    #7F1D1D;  /* on danger-soft: 8.20:1 */
+  --color-info:         #1D4ED8;  /* 6.70:1 with white */
+  --color-info-soft:    #DBEAFE;
+  --color-info-fg:      #1E3A8A;  /* on info-soft: 8.49:1 */
+
+  /* ---------- Surfaces, text, borders ---------- */
+  --color-canvas:        var(--color-grey-50);
+  --color-surface:       #FFFFFF;
+  --color-surface-sunken: var(--color-grey-100);
+  --color-border:        var(--color-grey-200); /* decorative: 1.23:1, allowed (not a control) */
+  --color-border-strong: var(--color-grey-450); /* controls: 3.46:1, meets WCAG 1.4.11 */
+  --color-text:          var(--color-grey-900); /* 17.85:1 on white */
+  --color-text-muted:    var(--color-grey-500); /* 4.76:1 on white  */
+  --color-text-subtle:   var(--color-grey-600); /* 7.58:1 on white  */
+  --color-text-inverse:  #FFFFFF;
+  --color-ring:          var(--color-primary-700); /* 5.47:1 on white, 5.25:1 on grey-50 */
+
+  /* ---------- Typography ---------- */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+               "Noto Sans", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
+  /* Numeric stack: fonts with true tabular figures. Segoe UI, SF and Roboto all
+     carry a `tnum` feature; the fallback list keeps metrics stable across OSes. */
+  --font-numeric: "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --text-xs:   0.75rem;   --text-xs--line-height:   1rem;     /* 12px / 16px dense table meta */
+  --text-sm:   0.8125rem; --text-sm--line-height:   1.125rem; /* 13px / 18px table body, badges */
+  --text-base: 0.875rem;  --text-base--line-height: 1.3125rem;/* 14px / 21px THE body size */
+  --text-md:   1rem;      --text-md--line-height:   1.5rem;   /* 16px / 24px inputs (>=16px avoids iOS zoom) */
+  --text-lg:   1.125rem;  --text-lg--line-height:   1.625rem; /* 18px / 26px card titles */
+  --text-xl:   1.25rem;   --text-xl--line-height:   1.75rem;  /* 20px / 28px section headings */
+  --text-2xl:  1.5rem;    --text-2xl--line-height:  2rem;     /* 24px / 32px page titles */
+  --text-3xl:  1.875rem;  --text-3xl--line-height:  2.25rem;  /* 30px / 36px queue counts */
+  --text-4xl:  2.25rem;   --text-4xl--line-height:  2.5rem;   /* 36px / 40px kiosk / ward board */
+
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --leading-tight:   1.2;   /* display numbers */
+  --leading-snug:    1.35;  /* headings */
+  --leading-normal:  1.5;   /* body */
+  --leading-relaxed: 1.6;   /* long clinical notes */
+
+  --tracking-tight:  -0.01em; /* >=24px headings only */
+  --tracking-normal: 0;
+  --tracking-wide:   0.02em;  /* uppercase labels */
+
+  /* ---------- Spacing: one 4px base, plus named layout gutters ---------- */
+  --spacing: 0.25rem;          /* p-4 = 16px, p-6 = 24px, gap-2 = 8px ... */
+  --spacing-gutter:  1.5rem;   /* 24px page gutter */
+  --spacing-field:   0.625rem; /* 10px vertical rhythm between form fields */
+  --spacing-control: 2.25rem;  /* 36px default control height */
+  --spacing-touch:   2.75rem;  /* 44px minimum interactive target */
+
+  /* ---------- Radii: restrained. Clinical software is not a phone app. ---------- */
+  --radius-xs:   0.125rem; /* 2px tags, pills-in-table */
+  --radius-sm:   0.25rem;  /* 4px inputs, buttons, badges */
+  --radius-md:   0.375rem; /* 6px cards, popovers */
+  --radius-lg:   0.5rem;   /* 8px modals, drawers */
+  --radius-full: 9999px;   /* avatars, status dots only */
+
+  /* ---------- Shadows: three levels, all subtle ---------- */
+  --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-md: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+  --shadow-lg: 0 8px 24px -6px rgb(15 23 42 / 0.12), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+
+  /* ---------- Border widths ---------- */
+  --border-hairline: 1px; /* every default border */
+  --border-thick:    2px; /* focus rings, active tab underline, selected row */
+
+  /* ---------- Z-index layers (named, so no one guesses 9999) ---------- */
+  --z-index-base:           0;
+  --z-index-dropdown:       1000;
+  --z-index-sticky:         1100;  /* sticky page header, table thead, action bars */
+  --z-index-modal-backdrop: 1200;
+  --z-index-modal:          1300;
+  --z-index-toast:          1400;
+  --z-index-tooltip:        1500;
+
+  /* ---------- Motion: easings (Tailwind v4 has an --ease-* namespace) ---------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);    /* decelerate: enters, expands */
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);    /* accelerate: leaves, collapses */
+  --ease-linear:   linear;                        /* progress bars, spinners ONLY */
+
+  /* ---------- Breakpoints, pinned ---------- */
+  --breakpoint-sm: 40rem;   /* 640px  */
+  --breakpoint-md: 48rem;   /* 768px  */
+  --breakpoint-lg: 64rem;   /* 1024px */
+  --breakpoint-xl: 80rem;   /* 1280px */
+  --breakpoint-2xl: 96rem;  /* 1536px */
+}
+
+/* Durations are plain custom properties: Tailwind v4 has no --duration-* theme
+   namespace, and its built-in duration-100/150/200 utilities already exist.
+   Declare these for CSS and for the motion (Framer Motion) variant objects. */
+:root {
+  --duration-instant: 100ms; /* hover, colour swaps, focus ring */
+  --duration-fast:    150ms; /* dropdown, tooltip, toast, badge change */
+  --duration-normal:  200ms; /* modal, drawer, row enter, panel expand - the maximum */
+}
+
+/* Numeric text utility. Apply to every table cell, vital and money value. */
+@utility tnum {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}

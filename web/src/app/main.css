@@ -1,0 +1,55 @@
+/* web/src/app/main.css
+   The ONLY stylesheet entry point. Import order matters:
+     1. tailwindcss    — sets up the utility engine and preflight
+     2. tokens.css     — our @theme block overrides/extendeds Tailwind's defaults
+     3. print.css      — POS thermal layouts, loaded last so it can win in @media print
+*/
+@import "tailwindcss";
+@import "../styles/tokens.css";
+@import "../styles/print.css";
+
+/* Light mode only, permanently. There is deliberately no dark theme and no
+   theme toggle: PHC consulting rooms are brightly lit and a dark UI turns a
+   glossy laptop panel into a mirror, and a single theme halves the surface
+   that has to be tested. See docs/03-UI-PATTERNS.md §1.4.
+   Declaring the scheme stops the browser auto-darkening form controls. */
+:root {
+  color-scheme: light;
+}
+
+/* Baseline page chrome. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus rings are never removed. This is a keyboard-first data-entry
+   application; a user who cannot see where focus is cannot work. */
+:focus-visible {
+  outline: var(--border-thick) solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Respect the OS setting. Motion here is decorative — nothing depends on it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

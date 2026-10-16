@@ -1,0 +1,129 @@
+/* web/src/styles/print.css
+   Thermal POS printing for 58mm and 80mm rolls, plus the A4 document layout.
+
+   Full specification: docs/03-UI-PATTERNS.md §7.
+   Sprint 0 ships the shell: page setup, chrome suppression, and the two roll
+   widths. The receipt and referral-slip bodies land in Sprint 6 and Sprint 8.
+*/
+
+/* ─── Screen: the print frame is invisible until you print ─────────────── */
+.print-only {
+  display: none;
+}
+
+/* ─── Shared print rules ──────────────────────────────────────────────── */
+@media print {
+  /* Force black on white. Thermal printers are 1-bit; greys dither badly and
+     coloured text can vanish entirely at low darkness settings. */
+  *,
+  *::before,
+  *::after {
+    color: #000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  /* Hide the application chrome: navigation, action bars, toasts, dialogs. */
+  [data-print="hide"],
+  nav,
+  aside,
+  header[role="banner"],
+  button {
+    display: none !important;
+  }
+
+  /* Show elements that exist only for the printed artefact. */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Never split a row or a total block across two slips of paper. */
+  tr,
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* A receipt is one continuous strip; no page margins. */
+  .receipt {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Keep the QR crisp: it must be a raster image at a real size, never a
+     scaled-down preview. See docs/03-UI-PATTERNS.md §7.4. */
+  .qr-canvas,
+  .qr-canvas img,
+  .qr-canvas canvas {
+    width: 28mm !important;
+    height: 28mm !important;
+    image-rendering: pixelated;
+  }
+}
+
+/* ─── 58mm roll: 32 columns at 12cpi ──────────────────────────────────── */
+@page receipt58 {
+  size: 58mm auto;
+  margin: 2mm;
+}
+
+.receipt-58 {
+  page: receipt58;
+  width: 54mm;
+  font-family: var(--font-mono);
+  font-size: 9pt;
+  line-height: 1.25;
+}
+
+/* ─── 80mm roll: 42 columns at 12cpi ──────────────────────────────────── */
+@page receipt80 {
+  size: 80mm auto;
+  margin: 3mm;
+}
+
+.receipt-80 {
+  page: receipt80;
+  width: 74mm;
+  font-family: var(--font-mono);
+  font-size: 10pt;
+  line-height: 1.25;
+}
+
+/* ─── Shared receipt typography ───────────────────────────────────────── */
+.receipt-header {
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.receipt-rule {
+  border: 0;
+  border-top: 1px dashed #000;
+  margin: 1mm 0;
+}
+
+.receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 2mm;
+}
+
+.receipt-total {
+  font-weight: 700;
+  font-size: 1.1em;
+}
+
+.receipt-footnote {
+  text-align: center;
+  font-size: 0.85em;
+}
