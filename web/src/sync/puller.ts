@@ -1,6 +1,13 @@
 import { db } from '@/db';
-import type { HouseholdRow, PatientRow, SyncProbeRow } from '@/db/types';
+import type {
+  EncounterRow,
+  HouseholdRow,
+  PatientRow,
+  SyncProbeRow,
+  VitalsRow,
+} from '@/db/types';
 import { apiGet } from '@/lib/api';
+import { syncedTableHandles } from './tables';
 
 /**
  * The pull loop: server changes → local replica.
@@ -58,7 +65,7 @@ export async function pullOnce(): Promise<PullOutcome> {
   // an adapter. Hard-coding the probe here is how a patient could be pushed,
   // acknowledged by the server, and then never appear on the second device —
   // the pull simply skipped it.
-  await db.transaction('rw', [db.sync_probe, db.patients, db.households, db.syncMeta], async () => {
+  await db.transaction('rw', [...syncedTableHandles(), db.syncMeta], async () => {
     for (const [table, rows] of Object.entries(data.rows)) {
       const adapter = ADAPTERS[table];
       if (!adapter) continue;
@@ -112,6 +119,8 @@ const ADAPTERS: Record<string, { table: RowStore; adapt: (raw: Record<string, un
   sync_probe: { table: db.sync_probe as unknown as RowStore, adapt: toProbeRow },
   patients: { table: db.patients as unknown as RowStore, adapt: toPatientRow },
   households: { table: db.households as unknown as RowStore, adapt: toHouseholdRow },
+  encounters: { table: db.encounters as unknown as RowStore, adapt: toEncounterRow },
+  vitals: { table: db.vitals as unknown as RowStore, adapt: toVitalsRow },
 };
 
 /**
@@ -133,6 +142,14 @@ export function toPatientRow(raw: Record<string, unknown>): PatientRow {
 
 export function toHouseholdRow(raw: Record<string, unknown>): HouseholdRow {
   return toSynced<HouseholdRow>(raw);
+}
+
+export function toEncounterRow(raw: Record<string, unknown>): EncounterRow {
+  return toSynced<EncounterRow>(raw);
+}
+
+export function toVitalsRow(raw: Record<string, unknown>): VitalsRow {
+  return toSynced<VitalsRow>(raw);
 }
 
 export function toProbeRow(raw: Record<string, unknown>): SyncProbeRow {

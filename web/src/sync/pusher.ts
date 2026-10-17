@@ -2,6 +2,7 @@ import { db } from '@/db';
 import { newId, type OutboxEntry, type SyncProbeRow } from '@/db/types';
 import { apiFetch, apiPath } from '@/lib/api';
 import { loadOrCreateDeviceKey, signRequest } from './deviceKey';
+import { syncedTableHandles } from './tables';
 
 /**
  * The outbox drain.
@@ -148,9 +149,7 @@ async function applyResults(due: OutboxEntry[], response: PushResponse): Promise
   // transaction, so marking a patient synced outside this list silently failed
   // AFTER the outbox row was already marked done — the work was sent, the row
   // still said "never sent", and nothing reconciled them.
-  const syncedTables = [db.sync_probe, db.patients, db.households];
-
-  await db.transaction('rw', [db.outbox, db.conflicts, ...syncedTables], async () => {
+  await db.transaction('rw', [db.outbox, db.conflicts, ...syncedTableHandles()], async () => {
     for (const entry of due) {
       const result = byId.get(entry.id);
       if (!result) {
