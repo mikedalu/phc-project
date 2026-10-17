@@ -1151,6 +1151,11 @@ Lets the receiving facility close the loop, which sets `status = 'acknowledged'`
 
 ## 12. Sprint-to-endpoint map
 
+> **Read §14 first.** This map describes the INTENT at planning time; a number of
+> these endpoints were deliberately deferred. §14.1 lists the 44 routes that
+> exist, with their roles, and §14.2 lists what does not, with the reason.
+
+
 | Sprint | Endpoints introduced |
 |---|---|
 | 0 | `GET /health`, `GET /ready`, `GET /meta` |
@@ -1179,3 +1184,88 @@ Before you consider an endpoint done:
 - [ ] Audit log written for any state change.
 - [ ] No sensitive field can reach the response — verify `password_hash`, tokens and PIN hashes are absent from every DTO.
 - [ ] Documented here in the same commit as the code.
+
+---
+
+## 14. As-built appendix — what actually exists
+
+Added at the end of Sprint 9. Sections 2–11 describe the **intended** contract; this appendix records what a client will actually find at `https://<api>/api/v1`. Where the two differ, this table is the truth.
+
+### 14.1 Routes (44, generated from the running router)
+
+`P` = public (no token), `A` = any authenticated role, then an explicit role list.
+
+| Method | Path | Auth |
+|---|---|---|
+| GET | `/health` | P |
+| GET | `/ready` | P |
+| GET | `/meta` | P |
+| POST | `/auth/login` | P |
+| POST | `/auth/refresh` | P |
+| POST | `/auth/logout` | P |
+| POST | `/auth/offline-verify` | P |
+| GET | `/referrals/:token` | P — the token IS the credential |
+| GET | `/auth/session` | A |
+| POST | `/auth/change-password` | A |
+| POST | `/devices` | A |
+| GET | `/sync/pull` | A |
+| GET | `/sync/snapshot` | A |
+| POST | `/sync/push` | A + device signature |
+| GET | `/patients` | front_desk, nurse, doctor, cashier, lab_scientist, admin |
+| POST | `/patients` | front_desk, nurse, doctor, admin |
+| GET | `/patients/:id` | clinical + cashier + admin |
+| PATCH | `/patients/:id` | front_desk, nurse, doctor, admin |
+| POST | `/patients/family` | front_desk, nurse, doctor, admin |
+| POST | `/patients/:id/vitals` | nurse, doctor, admin |
+| GET | `/patients/:id/vitals` | nurse, doctor, admin |
+| GET | `/patients/:id/diagnoses` | doctor, nurse, admin |
+| GET | `/patients/:id/lab-orders` | doctor, nurse, lab_scientist, admin |
+| GET | `/households/:id` | front_desk, cashier, nurse, doctor, admin |
+| GET | `/queue` | front_desk, nurse, doctor, admin |
+| POST | `/encounters` | front_desk, nurse, doctor, admin |
+| POST | `/encounters/:id/transition` | front_desk, nurse, doctor, admin |
+| POST | `/consultations/:encounterId/diagnoses` | doctor, admin |
+| POST | `/consultations/:encounterId/lab-orders` | doctor, admin |
+| POST | `/consultations/:encounterId/prescriptions` | doctor, admin |
+| POST | `/lab-orders/:id/collect` | lab_scientist, nurse, admin |
+| GET | `/lab-orders/:id/results` | doctor, lab_scientist, nurse, admin |
+| POST | `/lab-orders/:id/results` | lab_scientist, admin |
+| POST | `/prescriptions/:id/dispense` | pharmacist, admin |
+| POST | `/invoices` | cashier, front_desk, accountant, admin |
+| GET | `/invoices/:id/balance` | cashier, front_desk, accountant, admin |
+| POST | `/payments` | cashier, admin |
+| POST | `/admissions` | nurse, doctor, admin |
+| POST | `/admissions/:id/bed-days` | nurse, doctor, admin |
+| POST | `/admissions/:id/discharge` | nurse, doctor, admin |
+| POST | `/referrals` | doctor, nurse, admin |
+| GET | `/admin/users` | admin |
+| PATCH | `/admin/users/:id` | admin |
+| POST | `/admin/devices/:id/revoke` | admin |
+
+### 14.2 Contracted but NOT built
+
+Listed so nobody builds a client against a 404. Each is a deliberate deferral, not an oversight.
+
+| Endpoint | Why it does not exist |
+|---|---|
+| `/patients/:id/history`, `/patients/:id/balance` | The profile screen reads Dexie; a server-side history endpoint has no consumer |
+| `/patients/duplicates`, `/patients/merge` | Duplicates are detected on the DEVICE (it must work offline); a merge needs conflict UI that was not built |
+| `/patients/:id/referrals`, `/referrals/:id/reprint`, `/revoke`, `/access-log`, `/acknowledge` | The token is returned once and never stored, so a reprint is impossible by design. Revocation exists in the database and is honoured on read, but has no endpoint yet |
+| `GET /r/:token`, `POST /r/:token/verify-pin` | The WEB app owns this path (`/r/:token`); PIN verification is not implemented |
+| `/sync/status`, `/sync/resolve-conflict` | Status is derived on the client from Dexie; conflicts are displayed, not resolved interactively |
+| `/payments/:id/reverse`, `/payments/:id/receipt` | A reversal is modelled in the schema (`reversal_of_payment_id`) but has no endpoint; receipts are rendered client-side |
+| `/encounters` list, `/encounters/:id` | The queue endpoint covers the list; there is no single-encounter read |
+| `/drug-products`, `/beds`, `/admissions/accrue-daily`, transfers, ward notes | Drug prices come from `tariffs`; beds are a text field; bed-days are charged one night at a time on purpose (D60) |
+| `/icd10/search` | The shortlist is bundled in the client (20 conditions); a server search would need the licensed code set |
+| `GET /reports/*`, exports | Not built — Sprint 9 scope was hardening, not reporting |
+
+### 14.3 Response-shape changes since sections 2–11 were written
+
+| Area | What changed |
+|---|---|
+| Encounter | Every encounter carries `nextStages`, so the client renders only moves the server will accept |
+| Lab order | Accepts `tariffCode`; returns `invoiceId` when billed |
+| Prescription | `POST /consultations/:id/prescriptions` returns `invoiceId`; payment releases it to `paid` in the same transaction |
+| Bed-day | Returns `200 { alreadyBilled: true }` — not an error — when the night was already charged (D60) |
+| Payment | A replayed `operationId` returns **200** with `duplicate: true` and the original receipt, never a second payment |
+| Referral read | Public, and returns the decrypted payload fields (`name`, `age`, `sex`, `from`, `to`, `reason`, `dx`, `tx`, `urgency`, `iat`, `exp`) |
