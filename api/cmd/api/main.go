@@ -106,7 +106,11 @@ func run() error {
 	patientSvc := service.NewPatients(pool)
 	patientHandler := handler.NewPatients(patientSvc)
 
-	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler, patientHandler, issuer)
+	householdSvc := service.NewHouseholds(pool)
+	householdHandler := handler.NewHouseholds(householdSvc)
+
+	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
+		patientHandler, householdHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -166,7 +170,17 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, syncHandler *handler.Sync, patientHandler *handler.Patients, issuer *token.Issuer) *gin.Engine {
+func buildRouter(
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	authHandler *handler.Auth,
+	deviceHandler *handler.Devices,
+	userHandler *handler.Users,
+	syncHandler *handler.Sync,
+	patientHandler *handler.Patients,
+	householdHandler *handler.Households,
+	issuer *token.Issuer,
+) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -280,6 +294,16 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 	{
 		patientWrites.POST("", patientHandler.Create)
 		patientWrites.PATCH("/:id", patientHandler.Update)
+		// Family registration. Static segment, so it cannot be confused with
+		// the :id route, and it is POST where :id is GET/PATCH.
+		patientWrites.POST("/family", householdHandler.RegisterFamily)
+	}
+
+	// ─── households ────────────────────────────────────────────────
+	households := v1.Group("/households")
+	households.Use(middleware.RequireAuth(issuer))
+	{
+		households.GET("/:id", householdHandler.Get)
 	}
 
 	// ─── administration ────────────────────────────────────────────
