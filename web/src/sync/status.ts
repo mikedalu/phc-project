@@ -89,6 +89,17 @@ function subscribeEngine(listener: () => void): () => void {
   };
 }
 
+/**
+ * Reads the engine state outside React.
+ *
+ * Public rather than internal because the only way to diagnose "the device sat
+ * there and did nothing" is to ask the engine what it last saw, and a support
+ * call has no browser console of its own.
+ */
+export function getEngineState(): EngineState {
+  return engineState;
+}
+
 export function useEngineState(): EngineState {
   return useSyncExternalStore(subscribeEngine, () => engineState, () => engineState);
 }

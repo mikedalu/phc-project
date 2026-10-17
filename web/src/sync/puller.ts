@@ -150,6 +150,34 @@ export function toHouseholdRow(raw: Record<string, unknown>): HouseholdRow {
   return toSynced<HouseholdRow>(raw);
 }
 
+/**
+ * Applies a page of snapshot rows for one table.
+ *
+ * Snapshots are the right way to fill a NEW device: a `pull?since=0` has to
+ * stream the entire change log and every row in one response, which on a cold
+ * database takes longer than the client's timeout — the device then looks empty
+ * with nothing to press.
+ */
+export async function applySnapshotRows(table: string, rows: Record<string, unknown>[]): Promise<number> {
+  const adapter = ADAPTERS[table];
+  if (!adapter) return 0;
+
+  let written = 0;
+  // The cast is the same containment used by the ADAPTERS table: these handles
+  // are heterogeneous and the loop only needs get/put.
+  await db.transaction('rw', [adapter.table as unknown as typeof db.patients], async () => {
+    for (const raw of rows) {
+      const incoming = adapter.adapt(raw);
+      const local = await adapter.table.get(incoming.id);
+      if (local && local.syncState === 'pending') continue;
+      if (local && local.serverRev > incoming.serverRev) continue;
+      await adapter.table.put(incoming);
+      written += 1;
+    }
+  });
+  return written;
+}
+
 export function toEncounterRow(raw: Record<string, unknown>): EncounterRow {
   return toSynced<EncounterRow>(raw);
 }

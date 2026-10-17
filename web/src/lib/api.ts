@@ -306,7 +306,14 @@ export async function apiFetch<T>(
   if (first.result) return first.result;
 
   const error = first.error;
-  const expired = error.code === 'TOKEN_EXPIRED';
+
+  // UNAUTHENTICATED counts as "expired" when the request went out with NO token.
+  //
+  // After a reload the access token is memory-only, so the very first request of
+  // a session can leave without an Authorization header. The server then answers
+  // UNAUTHENTICATED, not TOKEN_EXPIRED, and a client that only checks the latter
+  // never refreshes — the request simply fails and the app looks signed out.
+  const expired = error.code === 'TOKEN_EXPIRED' || (error.code === 'UNAUTHENTICATED' && !token);
 
   if (expired && !options.skipAuth && authBridge) {
     const outcome = await authBridge.refresh();

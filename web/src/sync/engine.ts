@@ -2,7 +2,8 @@ import { db } from '@/db';
 import { apiGet } from '@/lib/api';
 import { setEngineState } from './status';
 import { pushOnce } from './pusher';
-import { pullOnce, toProbeRow } from './puller';
+import { applySnapshotRows, pullOnce } from './puller';
+import { SYNCED_TABLES } from './tables';
 
 /**
  * The sync engine's conductor.
@@ -21,6 +22,22 @@ import { pullOnce, toProbeRow } from './puller';
 
 const PUSH_DEBOUNCE_MS = 2_000;
 const POLL_INTERVAL_MS = 60_000;
+
+/**
+ * A whole sync run must FINISH, one way or another.
+ *
+ * ═══ THE FAILURE THIS PREVENTS ═══
+ *
+ * `runSync` is single-flight: while a run is in progress every other trigger is
+ * merely queued. If any stage of a run never settles — a fetch that hangs, a
+ * transaction that never commits — the engine stays `syncing` for ever, drops
+ * every subsequent trigger, and shows no error. The device looks idle and empty
+ * with nothing to press.
+ *
+ * A timeout converts "stuck for ever" into "failed, try again", which the poll
+ * then does 60 s later.
+ */
+const SYNC_TIMEOUT_MS = 30_000;
 
 let debounceTimer: number | null = null;
 let running = false;
@@ -72,7 +89,7 @@ export async function runSync(): Promise<void> {
   try {
     do {
       queued = false;
-      await runOnce();
+      await withTimeout(runOnce(), SYNC_TIMEOUT_MS);
     } while (queued);
 
     setEngineState({ syncing: false, lastError: null, lastSyncAt: Date.now() });
@@ -81,8 +98,84 @@ export async function runSync(): Promise<void> {
   }
 }
 
+/**
+ * Fills a brand-new device table by table.
+ *
+ * Runs BEFORE the first pull, and never on a device that already has a cursor:
+ * the cursor is the contract that says "I have everything up to here".
+ */
+async function bootstrapFromScratch(): Promise<void> {
+  let cursor = 0;
+
+  for (const table of SYNCED_TABLES) {
+    let after = '';
+
+    try {
+    for (let page = 0; page < 200; page += 1) {
+      const query = `/sync/snapshot?table=${table}${after ? `&after=${after}` : ''}`;
+      const { data } = await apiGet<{
+        table: string;
+        rows: Record<string, unknown>[];
+        hasMore: boolean;
+        cursorAtStart: number;
+      }>(query);
+
+      cursor = Math.max(cursor, data.cursorAtStart ?? 0);
+      await applySnapshotRows(table, data.rows);
+
+      if (!data.hasMore) break;
+      const last = data.rows[data.rows.length - 1];
+      if (!last) break;
+      after = String(last.id);
+    }
+    } catch (error) {
+      // A role does not get every table: a lab scientist cannot read households,
+      // and a cashier cannot read clinical notes. Skipping the ones this user
+      // may not see is correct; aborting the bootstrap would leave a device with
+      // NO cursor and an empty app, which is exactly the bug this fixes.
+      if (!isSkippableTableError(error)) throw error;
+    }
+  }
+
+  // Adopt the cursor captured BEFORE the first page was read, so changes made
+  // during the bootstrap are replayed by the next pull rather than skipped.
+  await db.syncMeta.put({ key: 'pullCursor', value: cursor });
+}
+
+/** True for "you may not read that table", which must not abort a bootstrap. */
+function isSkippableTableError(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === 'FORBIDDEN' || code === 'NOT_FOUND' || code === 'VALIDATION_FAILED';
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`Sync timed out after ${Math.round(ms / 1000)}s.`));
+    }, ms);
+    work.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function runOnce(): Promise<void> {
   try {
+    // A device with NO cursor has never synced. Fill it from SNAPSHOTS, not from
+    // `pull?since=0`: the pull has to stream the whole change log plus every row
+    // in one response, which on a cold Neon outlasts the client's timeout — and
+    // the device then sits there looking empty with nothing to press.
+    if (!(await db.syncMeta.get('pullCursor'))) {
+      await bootstrapFromScratch();
+    }
+
     // Push first, ALWAYS. Pulling first would apply server rows over local
     // pending edits that have not been sent yet, which then lose for no reason.
     for (let round = 0; round < 5; round += 1) {
@@ -116,36 +209,11 @@ async function runOnce(): Promise<void> {
  * are not skipped.
  */
 async function rebootstrap(): Promise<void> {
-  let after = '';
-  let cursorAtStart = 0;
-
-  for (let page = 0; page < 200; page += 1) {
-    const query = `/sync/snapshot?table=sync_probe${after ? `&after=${after}` : ''}`;
-    const { data } = await apiGet<{
-      table: string;
-      rows: Record<string, unknown>[];
-      hasMore: boolean;
-      cursorAtStart: number;
-    }>(query);
-
-    cursorAtStart = data.cursorAtStart;
-
-    await db.transaction('rw', db.sync_probe, async () => {
-      for (const raw of data.rows) {
-        await db.sync_probe.put(toProbeRow(raw));
-      }
-    });
-
-    if (!data.hasMore) break;
-    const last = data.rows[data.rows.length - 1];
-    if (!last) break;
-    after = String(last.id);
-  }
-
-  await db.transaction('rw', db.syncMeta, async () => {
-    await db.syncMeta.put({ key: 'pullCursor', value: cursorAtStart });
-    await db.syncMeta.put({ key: 'fullResyncRequired', value: false });
-  });
+  // A full re-bootstrap is exactly what a first-time device does, so it is the
+  // same routine: snapshot every table, then adopt the cursor captured before
+  // the first page. The earlier version restored ONLY the probe table, which
+  // left a resynced device with an empty app and a cursor claiming otherwise.
+  await bootstrapFromScratch();
 }
 
 /** Wires the triggers. Called once at bootstrap. */
