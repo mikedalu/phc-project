@@ -89,7 +89,7 @@ test.describe('consultation', () => {
     await resultInputs.nth(1).fill('Positive');
     await awaiting.getByRole('button', { name: 'Save result' }).click();
 
-    await expect(lab.getByText(/Malaria Parasite: Positive/)).toBeVisible({ timeout: 30_000 });
+    await expect(lab.getByText(/Malaria Parasite: Positive/).first()).toBeVisible({ timeout: 30_000 });
 
     // Push the result BEFORE the doctor pulls. The lab's own screen updates from
     // its local database the instant the row is written, so asserting on that
@@ -100,7 +100,7 @@ test.describe('consultation', () => {
     // ── A: the doctor sees the result ──────────────────────────────
     await forceSync(doctor);
     await doctor.goto('/lab');
-    await expect(doctor.getByText(/Malaria Parasite: Positive/)).toBeVisible({ timeout: 180_000 });
+    await expect(doctor.getByText(/Malaria Parasite: Positive/).first()).toBeVisible({ timeout: 180_000 });
 
     await contextA.close();
     await contextB.close();

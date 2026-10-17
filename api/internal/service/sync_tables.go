@@ -35,6 +35,9 @@ const (
 	kindUUID
 	kindDate
 	kindInt
+	// kindInt64 is for BIGINT money columns. kindInt narrows to int, which is
+	// fine for quantities and wrong for money the day a total exceeds 2^31 kobo.
+	kindInt64
 	kindBool
 	kindFloat
 	// kindTimestamp is a TIMESTAMPTZ: RFC 3339 with an offset, unlike kindDate
@@ -474,6 +477,18 @@ func convertField(col columnSpec, payload map[string]any) (any, error) {
 			return nil, fmt.Errorf("%s must be a number", col.Field)
 		}
 
+	case kindInt64:
+		switch v := raw.(type) {
+		case float64:
+			return int64(v), nil
+		case int:
+			return int64(v), nil
+		case int64:
+			return v, nil
+		default:
+			return nil, fmt.Errorf("%s must be an integer", col.Field)
+		}
+
 	case kindBool:
 		b, ok := raw.(bool)
 		if !ok {
@@ -638,6 +653,83 @@ var diagnosisColumnsForSync = []columnSpec{
 	{Field: "clinicalNotes", SQL: "clinical_notes", Kind: kindText},
 	{Field: "diagnosedAt", SQL: "diagnosed_at", Kind: kindTimestamp},
 	{Field: "diagnosedBy", SQL: "diagnosed_by", Kind: kindUUID},
+}
+
+// ─── billing ───────────────────────────────────────────────────────
+
+var tariffColumnsForSync = []columnSpec{
+	{Field: "code", SQL: "code", Kind: kindText, Required: true},
+	{Field: "name", SQL: "name", Kind: kindText, Required: true},
+	{Field: "category", SQL: "category", Kind: kindText},
+	{Field: "unitPriceMinor", SQL: "unit_price_minor", Kind: kindInt64},
+	{Field: "unit", SQL: "unit", Kind: kindText},
+	{Field: "isActive", SQL: "is_active", Kind: kindBool},
+	{Field: "effectiveFrom", SQL: "effective_from", Kind: kindDate},
+	{Field: "effectiveTo", SQL: "effective_to", Kind: kindDate},
+}
+
+var invoiceInsertOnly = []columnSpec{
+	// An invoice number is printed on a receipt; renumbering rewrites history.
+	{Field: "invoiceNumber", SQL: "invoice_number", Kind: kindText, Required: true},
+}
+
+var invoiceColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "householdId", SQL: "household_id", Kind: kindUUID},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID},
+	{Field: "invoiceType", SQL: "invoice_type", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "totalMinor", SQL: "total_minor", Kind: kindInt64},
+	{Field: "issuedAt", SQL: "issued_at", Kind: kindTimestamp},
+	{Field: "issuedBy", SQL: "issued_by", Kind: kindUUID},
+	{Field: "voidedAt", SQL: "voided_at", Kind: kindTimestamp},
+	{Field: "voidedBy", SQL: "voided_by", Kind: kindUUID},
+	{Field: "voidReason", SQL: "void_reason", Kind: kindText},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+}
+
+var chargeColumnsForSync = []columnSpec{
+	{Field: "invoiceId", SQL: "invoice_id", Kind: kindUUID, Required: true},
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "householdId", SQL: "household_id", Kind: kindUUID},
+	{Field: "chargeType", SQL: "charge_type", Kind: kindText},
+	{Field: "tariffId", SQL: "tariff_id", Kind: kindUUID},
+	{Field: "description", SQL: "description", Kind: kindText, Required: true},
+	{Field: "referenceId", SQL: "reference_id", Kind: kindUUID},
+	{Field: "referenceType", SQL: "reference_type", Kind: kindText},
+	{Field: "quantity", SQL: "quantity", Kind: kindFloat},
+	{Field: "unitPriceMinor", SQL: "unit_price_minor", Kind: kindInt64},
+	{Field: "amountMinor", SQL: "amount_minor", Kind: kindInt64},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "postedAt", SQL: "posted_at", Kind: kindTimestamp},
+}
+
+var paymentInsertOnly = []columnSpec{
+	// The idempotency key and the receipt number must never change on an update.
+	{Field: "operationId", SQL: "operation_id", Kind: kindUUID, Required: true},
+	{Field: "receiptNumber", SQL: "receipt_number", Kind: kindText, Required: true},
+}
+
+var paymentColumnsForSync = []columnSpec{
+	{Field: "payerPatientId", SQL: "payer_patient_id", Kind: kindUUID},
+	{Field: "householdId", SQL: "household_id", Kind: kindUUID},
+	{Field: "amountMinor", SQL: "amount_minor", Kind: kindInt64, Required: true},
+	{Field: "currencyCode", SQL: "currency_code", Kind: kindText},
+	{Field: "paymentMethod", SQL: "payment_method", Kind: kindText},
+	{Field: "paymentReference", SQL: "payment_reference", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "paidAt", SQL: "paid_at", Kind: kindTimestamp},
+	{Field: "receivedBy", SQL: "received_by", Kind: kindUUID},
+	{Field: "reversalOfPaymentId", SQL: "reversal_of_payment_id", Kind: kindUUID},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+}
+
+var allocationColumnsForSync = []columnSpec{
+	{Field: "paymentId", SQL: "payment_id", Kind: kindUUID, Required: true},
+	{Field: "chargeId", SQL: "charge_id", Kind: kindUUID, Required: true},
+	{Field: "amountMinor", SQL: "amount_minor", Kind: kindInt64, Required: true},
+	{Field: "allocatedAt", SQL: "allocated_at", Kind: kindTimestamp},
+	{Field: "allocatedBy", SQL: "allocated_by", Kind: kindUUID},
 }
 
 var householdColumnsForSync = []columnSpec{

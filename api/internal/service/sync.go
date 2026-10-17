@@ -102,6 +102,51 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 			sync:       s.sync,
 			now:        s.now,
 		},
+		// ─── billing ───────────────────────────────────────────────
+		"tariffs": &lwwApplier{
+			table:   "tariffs",
+			columns: tariffColumnsForSync,
+			sync:    s.sync,
+			now:     s.now,
+		},
+		"invoices": &lwwApplier{
+			table:      "invoices",
+			columns:    invoiceColumnsForSync,
+			insertOnly: invoiceInsertOnly,
+			sync:       s.sync,
+			now:        s.now,
+		},
+		"charges": &lwwApplier{
+			table:   "charges",
+			columns: chargeColumnsForSync,
+			sync:    s.sync,
+			now:     s.now,
+		},
+		// Money received is a FACT: no updates, no deletes. A correction is a
+		// reversal row, which is itself a payment.
+		"payments": &appendOnlyApplier{
+			insert: &lwwApplier{
+				table:      "payments",
+				columns:    paymentColumnsForSync,
+				insertOnly: paymentInsertOnly,
+				sync:       s.sync,
+				now:        s.now,
+			},
+			attributedTo: []string{"receivedBy"},
+			sync:         s.sync,
+			now:          s.now,
+		},
+		"payment_allocations": &appendOnlyApplier{
+			insert: &lwwApplier{
+				table:   "payment_allocations",
+				columns: allocationColumnsForSync,
+				sync:    s.sync,
+				now:     s.now,
+			},
+			attributedTo: []string{"allocatedBy"},
+			sync:         s.sync,
+			now:          s.now,
+		},
 		"diagnoses": &appendOnlyApplier{
 			insert: &lwwApplier{
 				table:   "diagnoses",
