@@ -36,6 +36,10 @@ const (
 	kindDate
 	kindInt
 	kindBool
+	kindFloat
+	// kindTimestamp is a TIMESTAMPTZ: RFC 3339 with an offset, unlike kindDate
+	// which is a DATE and must stay timezone-free.
+	kindTimestamp
 )
 
 type columnSpec struct {
@@ -476,6 +480,27 @@ func convertField(col columnSpec, payload map[string]any) (any, error) {
 			return nil, fmt.Errorf("%s must be a boolean", col.Field)
 		}
 		return b, nil
+
+	case kindFloat:
+		switch v := raw.(type) {
+		case float64:
+			return v, nil
+		case int:
+			return float64(v), nil
+		default:
+			return nil, fmt.Errorf("%s must be a number", col.Field)
+		}
+
+	case kindTimestamp:
+		s, ok := raw.(string)
+		if !ok || s == "" {
+			return nil, fmt.Errorf("%s must be a timestamp", col.Field)
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be an RFC 3339 timestamp", col.Field)
+		}
+		return parsed, nil
 	}
 
 	return nil, fmt.Errorf("unsupported field %s", col.Field)
@@ -519,6 +544,51 @@ var patientColumnsForSync = []columnSpec{
 
 var householdInsertOnly = []columnSpec{
 	{Field: "familyNumber", SQL: "family_number", Kind: kindText, Required: true},
+}
+
+// encounterColumnsForSync is the declarative map for `encounters`.
+//
+// `visitNumber` is insert-only: renumbering a visit would rewrite the number on
+// any printed ticket and break the unique index for the next device that reuses
+// the sequence.
+var encounterInsertOnly = []columnSpec{
+	{Field: "visitNumber", SQL: "visit_number", Kind: kindText, Required: true},
+}
+
+var encounterColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "householdId", SQL: "household_id", Kind: kindUUID},
+	{Field: "encounterType", SQL: "encounter_type", Kind: kindText},
+	{Field: "workflowStage", SQL: "workflow_stage", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "priority", SQL: "priority", Kind: kindInt},
+	{Field: "chiefComplaint", SQL: "chief_complaint", Kind: kindText},
+	{Field: "queuedAt", SQL: "queued_at", Kind: kindTimestamp},
+	{Field: "startedAt", SQL: "started_at", Kind: kindTimestamp},
+	{Field: "closedAt", SQL: "closed_at", Kind: kindTimestamp},
+	{Field: "closedBy", SQL: "closed_by", Kind: kindUUID},
+	{Field: "attendingDoctorId", SQL: "attending_doctor_id", Kind: kindUUID},
+	{Field: "attendingNurseId", SQL: "attending_nurse_id", Kind: kindUUID},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+}
+
+// vitalsColumnsForSync: every clinical field, no update path.
+var vitalsColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID},
+	{Field: "recordedAt", SQL: "recorded_at", Kind: kindTimestamp},
+	{Field: "bpSystolic", SQL: "bp_systolic", Kind: kindInt},
+	{Field: "bpDiastolic", SQL: "bp_diastolic", Kind: kindInt},
+	{Field: "temperatureC", SQL: "temperature_c", Kind: kindFloat},
+	{Field: "pulseRate", SQL: "pulse_rate", Kind: kindInt},
+	{Field: "respiratoryRate", SQL: "respiratory_rate", Kind: kindInt},
+	{Field: "heightCm", SQL: "height_cm", Kind: kindFloat},
+	{Field: "weightKg", SQL: "weight_kg", Kind: kindFloat},
+	{Field: "spo2", SQL: "spo2", Kind: kindInt},
+	{Field: "bmi", SQL: "bmi", Kind: kindFloat},
+	{Field: "painScore", SQL: "pain_score", Kind: kindInt},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+	{Field: "recordedBy", SQL: "recorded_by", Kind: kindUUID},
 }
 
 var householdColumnsForSync = []columnSpec{

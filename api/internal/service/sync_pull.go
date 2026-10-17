@@ -65,6 +65,17 @@ var tableColumns = map[string]string{
 	"households": "id, family_number, family_name, head_patient_id, phone, address, " +
 		"notes, is_active, revision, server_rev, sync_state, deleted_at, " +
 		"created_at, updated_at, created_by, updated_by",
+
+	"encounters": "id, visit_number, patient_id, household_id, encounter_type, " +
+		"workflow_stage, status, priority, chief_complaint, queued_at, started_at, " +
+		"closed_at, closed_by, attending_doctor_id, attending_nurse_id, notes, " +
+		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
+		"created_by, updated_by",
+
+	"vitals": "id, patient_id, encounter_id, recorded_at, bp_systolic, bp_diastolic, " +
+		"temperature_c, pulse_rate, respiratory_rate, height_cm, weight_kg, spo2, bmi, " +
+		"pain_score, notes, recorded_by, revision, server_rev, sync_state, deleted_at, " +
+		"created_at, updated_at, created_by, updated_by",
 }
 
 // redactedColumns is defence in depth for columns that must never leave.
