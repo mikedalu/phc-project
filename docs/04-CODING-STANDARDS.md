@@ -3,9 +3,10 @@
 > **Project:** Design and Implementation of an Offline-Capable Web-Based Patient Records and Referral Management System for Primary Healthcare Centres
 > **Document status:** Canonical. If code disagrees with this document, one of them is a bug.
 > **Last updated:** Sprint 0
-> **Audience:** one developer, typing code by hand from mentor examples.
+> **Audience:** one developer who must be able to defend every line. The code is written by an
+> AI agent against these rules; the review and the understanding are the developer's. See `CLAUDE.md` §1.
 
-This document is the rulebook you follow *while typing*. It is deliberately short on theory and long on
+This document is the rulebook the code is written against, and the checklist a reviewer applies. It is deliberately short on theory and long on
 "here is the line you write". Read [00-ARCHITECTURE.md](./00-ARCHITECTURE.md) first — nothing here
 contradicts it. Where this document cites a rule, that rule exists to protect the offline-first design in
 §1.1 of the architecture: **the browser is the primary database; the server is a replication peer.**
