@@ -71,15 +71,24 @@ function ConsultationPage() {
             </p>
           ) : null}
         </div>
-        {patient ? (
+        <div className="flex items-center gap-3">
           <Link
-            to="/patients/$id"
-            params={{ id: patient.id }}
+            to="/referrals/new"
+            search={{ encounterId: encounter.id }}
             className="text-sm text-primary hover:underline"
           >
-            Open full record
+            Refer patient
           </Link>
-        ) : null}
+          {patient ? (
+            <Link
+              to="/patients/$id"
+              params={{ id: patient.id }}
+              className="text-sm text-primary hover:underline"
+            >
+              Open full record
+            </Link>
+          ) : null}
+        </div>
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">

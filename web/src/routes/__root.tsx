@@ -20,6 +20,11 @@ export const Route = createRootRoute({
   beforeLoad: ({ location }) => {
     if (location.pathname === '/login') return;
 
+    // A scanned referral is read by a STRANGER at another facility. They have no
+    // session and never will; the encrypted token is the credential. Guarding
+    // this path would make the feature fail exactly when it is needed.
+    if (location.pathname.startsWith('/r/')) return;
+
     if (useSession.getState().status !== 'authenticated') {
       throw redirect({ to: '/login' });
     }
@@ -30,10 +35,10 @@ export const Route = createRootRoute({
 function RootLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  // The login screen is a full-page canvas. A sidebar full of clinical
-  // navigation next to a sign-in form invites clicking things that require the
-  // session you do not have yet.
-  if (pathname === '/login') {
+  // The login screen and the scanned referral are full-page canvases. A sidebar
+  // full of clinical navigation next to either one invites clicking things that
+  // require a session the viewer does not have.
+  if (pathname === '/login' || pathname.startsWith('/r/')) {
     return <Outlet />;
   }
 
