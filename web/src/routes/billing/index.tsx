@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { takePayment, formatMoney } from '@/features/billing/write';
 import { cn } from '@/lib/cn';
+import { humanError } from '@/lib/errors';
 
 /**
  * The cashier's desk.
@@ -156,7 +157,7 @@ function TakePayment({ invoiceId, due }: { invoiceId: string; due: number }) {
       setOpen(false);
       setAmount('');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not take the payment.');
+      toast.error(humanError(error, 'Could not take the payment.'));
     } finally {
       setBusy(false);
     }

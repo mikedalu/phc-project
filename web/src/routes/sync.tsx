@@ -6,9 +6,9 @@ import { useOnline } from '@/sync/status';
 /**
  * Sync status.
  *
- * Sprint 0 shows the truth about an empty outbox. The per-table breakdown,
- * the conflict list and the manual "Sync now" action arrive with the engine in
- * Sprint 2 — this page is the shell they will live in.
+ * Written for the person using it, not for the person who built it. Every line
+ * answers "is my work safe?" and nothing on the page mentions sprints, buffers or
+ * queues as if the reader knows what those mean.
  */
 function SyncPage() {
   const online = useOnline();
@@ -31,7 +31,7 @@ function SyncPage() {
           {(
             [
               ['Connection', online ? 'Online' : 'Offline'],
-              ['Status', status],
+              ['Status', friendlyStatus(status, online)],
               ['Queued operations', String(pendingCount)],
               ['Unreviewed conflicts', String(conflictCount)],
             ] as const
@@ -45,17 +45,23 @@ function SyncPage() {
       </section>
 
       <section className="rounded-md border border-border bg-surface-sunken p-4">
-        <h2 className="text-sm font-semibold text-text">Not built yet</h2>
-        <ul className="mt-2 space-y-1 text-sm text-text-subtle">
-          <li>· The outbox drain and the push/pull loop — Sprint 2</li>
-          <li>· Offline grace countdown and re-authentication — Sprint 1</li>
-          <li>· Conflict review for administrators — Sprint 2</li>
+        <h2 className="text-sm font-semibold text-text">What these numbers mean</h2>
+        <ul className="mt-2 space-y-1.5 text-sm text-text-subtle">
+          <li>
+            <span className="font-medium text-text">Queued operations</span> — records saved on
+            this computer that have not reached the server yet. They send themselves; nothing is
+            lost if you close the browser.
+          </li>
+          <li>
+            <span className="font-medium text-text">Unreviewed conflicts</span> — another
+            workstation saved a different version of the same record at the same time. Both
+            versions are kept. An administrator can review them under Activity.
+          </li>
+          <li>
+            <span className="font-medium text-text">Offline</span> — work continues normally.
+            Only when the offline window closes must you sign in again to carry on.
+          </li>
         </ul>
-        <p className="mt-3 text-xs text-text-muted">
-          The queued count above is read live from IndexedDB, so it will be
-          accurate the moment the engine starts writing to it. Nothing here is
-          mocked.
-        </p>
       </section>
 
       <Link to="/" className="inline-block text-sm font-medium text-primary underline">
@@ -70,3 +76,29 @@ export const Route = createRoute({
   path: '/sync',
   component: SyncPage,
 });
+
+
+/**
+ * Turns the engine's internal state into a sentence a clinician can act on.
+ *
+ * "error" is not a status a nurse can do anything with; "Could not reach the
+ * server — your work is saved" is.
+ */
+function friendlyStatus(status: string, online: boolean): string {
+  switch (status) {
+    case 'synced':
+      return 'Everything is saved on the server';
+    case 'syncing':
+      return 'Sending your work…';
+    case 'pending':
+      return 'Saved here, waiting to send';
+    case 'offline':
+      return online ? 'Saved here, waiting to send' : 'No connection — work continues';
+    case 'error':
+      return 'Could not reach the server — your work is saved';
+    case 'blocked':
+      return 'Signed out of the server — sign in again to send';
+    default:
+      return status;
+  }
+}

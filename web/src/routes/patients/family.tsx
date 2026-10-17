@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { registerFamily } from '@/features/patients/family';
+import { humanError } from '@/lib/errors';
 
 /**
  * Family registration.
@@ -120,7 +121,7 @@ function FamilyPage() {
       );
       await navigate({ to: '/households/$id', params: { id: result.householdId } });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not register the family.');
+      setError(humanError(cause, 'Could not register the family.'));
       setSaving(false);
     }
   };

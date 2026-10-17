@@ -356,3 +356,27 @@ func (r *Users) RevokeRole(
 	}
 	return tag.RowsAffected() > 0, nil
 }
+
+// Create inserts a staff account with its initial password.
+//
+// `must_change_password` is set true on purpose: an administrator chooses the
+// first password, which means the administrator knows it. Forcing a change at
+// first sign-in is the only thing that makes that acceptable.
+func (r *Users) Create(ctx context.Context, q Querier, u *domain.User, passwordHash string, actorID uuid.UUID) error {
+	const sql = `
+        INSERT INTO users (
+            id, staff_number, email, phone, first_name, last_name, middle_name,
+            password_hash, must_change_password, is_active, created_by, updated_by
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,true,$9,$9)`
+
+	if _, err := q.Exec(ctx, sql,
+		u.ID, u.StaffNumber, u.Email, u.Phone, u.FirstName, u.LastName, u.MiddleName,
+		passwordHash, actorID,
+	); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: staff number or email already exists", domain.ErrConflict)
+		}
+		return fmt.Errorf("create user: %w", err)
+	}
+	return nil
+}

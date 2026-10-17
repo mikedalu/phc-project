@@ -141,3 +141,41 @@ func (h *Users) Update(c *gin.Context) {
 
 	httpx.OK(c, gin.H{"user": toAdminUserDTO(updated)})
 }
+
+type createUserRequest struct {
+	StaffNumber string `json:"staffNumber"`
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	Role        string `json:"role"`
+	Password    string `json:"password"`
+}
+
+// Create handles POST /api/v1/admin/users.
+func (h *Users) Create(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	var req createUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, "MALFORMED_REQUEST", "Request body must be valid JSON.", nil)
+		return
+	}
+
+	created, err := h.svc.CreateUser(c.Request.Context(), service.CreateUserInput{
+		ActorID:     actor.UserID,
+		StaffNumber: req.StaffNumber,
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		Role:        domain.Role(req.Role),
+		Password:    req.Password,
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	c.JSON(201, gin.H{"data": gin.H{"user": toAdminUserDTO(created)}})
+}

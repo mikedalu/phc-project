@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from '@/lib/api';
+import { apiGet, apiPatch, apiPost } from '@/lib/api';
 
 /** Admin account shapes — docs/07-API-CONTRACT.md §3, staff administration. */
 
@@ -30,5 +30,27 @@ export async function listUsers(): Promise<AdminUser[]> {
 
 export async function updateUser(id: string, patch: UserPatch): Promise<AdminUser> {
   const { data } = await apiPatch<{ user: AdminUser }>(`/admin/users/${id}`, patch);
+  return data.user;
+}
+
+
+export interface NewUser {
+  staffNumber: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  password: string;
+}
+
+/**
+ * Creates a staff account.
+ *
+ * The password set here is TEMPORARY: the server stores the account with
+ * must_change_password = true, so the new member of staff is forced to choose
+ * their own at first sign-in. Without that, the administrator would permanently
+ * know a colleague's password.
+ */
+export async function createUser(input: NewUser): Promise<AdminUser> {
+  const { data } = await apiPost<{ user: AdminUser }>('/admin/users', input);
   return data.user;
 }

@@ -475,6 +475,7 @@ func buildRouter(
 	{
 		admin.POST("/devices/:id/revoke", deviceHandler.Revoke)
 		admin.GET("/users", userHandler.List)
+		admin.POST("/users", userHandler.Create)
 		admin.GET("/activity", syncHandler.Activity)
 		admin.PATCH("/users/:id", userHandler.Update)
 	}

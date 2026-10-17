@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createRoute, redirect } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { AlertTriangle, Loader2, ShieldCheck, UserX, X } from 'lucide-react';
+import { AlertTriangle, Loader2, ShieldCheck, UserPlus, UserX, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Route as rootRoute } from '@/routes/__root';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,9 @@ import { cn } from '@/lib/cn';
 import { ApiError } from '@/lib/api';
 import { useSession } from '@/features/auth/session';
 import { ALL_ROLES, roleLabel } from '@/features/auth/roles';
-import { listUsers, updateUser, type AdminUser } from '@/features/users/api';
+import { createUser, listUsers, updateUser, type AdminUser } from '@/features/users/api';
+import { Input } from '@/components/ui/input';
+import { FormField } from '@/components/ui/form-field';
 
 /**
  * Staff administration.
@@ -48,6 +50,7 @@ function AdminUsersPage() {
   const queryClient = useQueryClient();
   const myId = useSession((s) => s.user?.userId ?? '');
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const { data: users, isPending, isError, error, refetch } = useQuery({
     queryKey: usersKey,
@@ -80,12 +83,28 @@ function AdminUsersPage() {
             Roles decide what a person can do. Every change here is recorded against your account.
           </p>
         </div>
-        {users ? (
-          <p className="text-sm text-text-muted">
-            {users.length} account{users.length === 1 ? '' : 's'}
-          </p>
-        ) : null}
+        <div className="flex items-center gap-3">
+          {users ? (
+            <p className="text-sm text-text-muted">
+              {users.length} account{users.length === 1 ? '' : 's'}
+            </p>
+          ) : null}
+          <Button size="sm" onClick={() => setAdding(true)}>
+            <UserPlus aria-hidden="true" className="size-4" />
+            Add staff
+          </Button>
+        </div>
       </header>
+
+      {adding ? (
+        <AddStaffForm
+          onCancel={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            void queryClient.invalidateQueries({ queryKey: usersKey });
+          }}
+        />
+      ) : null}
 
       {isError ? (
         <div
@@ -287,4 +306,129 @@ function UserRow({ user, isSelf, busy, onChange }: UserRowProps) {
       </td>
     </tr>
   );
+}
+
+
+/**
+ * Add a member of staff.
+ *
+ * The temporary password is shown to the administrator once and the account is
+ * forced to change it at first sign-in — so the administrator never keeps a
+ * working credential for a colleague.
+ */
+function AddStaffForm({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
+  const [staffNumber, setStaffNumber] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [role, setRole] = useState<string>('nurse');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createUser({ staffNumber, firstName, lastName, role, password });
+      toast.success(
+        `${created.firstName} ${created.lastName} added. Temporary password: ${password} — they must change it when they first sign in.`,
+        { duration: 15000 },
+      );
+      onCreated();
+    } catch (cause) {
+      setError(friendlyError(cause));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-md border border-border bg-surface p-4">
+      <h2 className="text-sm font-medium text-text">New staff account</h2>
+      <p className="mt-1 text-xs text-text-muted">
+        You choose a temporary password. They will be asked to change it the first time they sign
+        in.
+      </p>
+
+      {error ? (
+        <p role="alert" className="mt-3 rounded-sm border border-danger/30 bg-danger-soft p-2 text-sm text-danger-fg">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <FormField label="Staff number" required>
+          {(field) => (
+            <Input
+              id={field.id}
+              value={staffNumber}
+              onChange={(e) => setStaffNumber(e.target.value)}
+              placeholder="DEMO/STF/0012"
+            />
+          )}
+        </FormField>
+        <FormField label="Role">
+          {(field) => (
+            <select
+              id={field.id}
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="h-9 w-full rounded-sm border border-border-strong bg-surface px-3 text-md text-text"
+            >
+              {ALL_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {roleLabel(r)}
+                </option>
+              ))}
+            </select>
+          )}
+        </FormField>
+        <FormField label="First name" required>
+          {(field) => (
+            <Input id={field.id} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+          )}
+        </FormField>
+        <FormField label="Surname" required>
+          {(field) => (
+            <Input id={field.id} value={lastName} onChange={(e) => setLastName(e.target.value)} />
+          )}
+        </FormField>
+        <FormField label="Temporary password" required hint="At least 10 characters">
+          {(field) => (
+            <Input
+              id={field.id}
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="They change this at first sign-in"
+            />
+          )}
+        </FormField>
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <Button
+          size="sm"
+          onClick={() => void submit()}
+          disabled={busy || !staffNumber.trim() || !firstName.trim() || password.length < 10}
+        >
+          {busy ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+          Create account
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Turns an API failure into something a clerk can act on. */
+function friendlyError(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    if (cause.status === 409) return cause.message;
+    if (cause.status === 403) return 'Only an administrator can add staff.';
+    if (cause.status === 0) return 'The server could not be reached. Check the connection and try again.';
+    return cause.message;
+  }
+  return 'Something went wrong. Try again, and tell an administrator if it keeps happening.';
 }

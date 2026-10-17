@@ -8,6 +8,7 @@ import { db } from '@/db';
 import { Button } from '@/components/ui/button';
 import { chargeNight, dischargePatient, nightOf } from '@/features/ward/write';
 import { formatMoney } from '@/features/billing/write';
+import { humanError } from '@/lib/errors';
 
 /**
  * The ward board.
@@ -139,7 +140,7 @@ function WardActions({ admissionId, nights }: { admissionId: string; nights: str
         billed ? `Charged ${tonight}` : `${tonight} was already billed.`,
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not charge the bed-day.');
+      toast.error(humanError(error, 'Could not charge the bed-day.'));
     } finally {
       setBusy(false);
     }
@@ -151,7 +152,7 @@ function WardActions({ admissionId, nights }: { admissionId: string; nights: str
       await dischargePatient(admissionId, '');
       toast.success('Discharged.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not discharge.');
+      toast.error(humanError(error, 'Could not discharge the patient.'));
     } finally {
       setBusy(false);
     }

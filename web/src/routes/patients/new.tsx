@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { registerPatient, findLocalDuplicates } from '@/features/patients/write';
 import type { PatientRow } from '@/db/types';
+import { humanError } from '@/lib/errors';
 
 /**
  * Registration form.
@@ -132,7 +133,7 @@ function NewPatientPage() {
       );
       await navigate({ to: '/patients/$id', params: { id: row.id } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not register the patient.');
+      toast.error(humanError(error, 'Could not register the patient.'));
       setSaving(false);
     }
   };

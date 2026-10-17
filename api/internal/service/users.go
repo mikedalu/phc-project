@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mikedalu/phc-records/api/internal/domain"
 	"github.com/mikedalu/phc-records/api/internal/platform/db"
+	"github.com/mikedalu/phc-records/api/internal/platform/password"
 	"github.com/mikedalu/phc-records/api/internal/repo"
 )
 
@@ -222,4 +224,84 @@ func (s *Users) ensureAnotherAdminExists(ctx context.Context, excluding uuid.UUI
 			"That is the last active administrator. Grant another account the admin role first.")
 	}
 	return nil
+}
+
+// CreateUserInput is a new staff account.
+type CreateUserInput struct {
+	ActorID     uuid.UUID
+	StaffNumber string
+	FirstName   string
+	LastName    string
+	Role        domain.Role
+	// Password is the TEMPORARY password the administrator sets. The account is
+	// forced to change it at first sign-in.
+	Password string
+}
+
+// MinimumTemporaryPasswordLen is deliberately the same shape as the real policy
+// but applied to a value that will be replaced immediately.
+const MinimumTemporaryPasswordLen = 10
+
+// CreateUser adds a member of staff.
+func (s *Users) CreateUser(ctx context.Context, in CreateUserInput) (*domain.User, error) {
+	if _, err := s.requireAdmin(ctx, in.ActorID); err != nil {
+		return nil, err
+	}
+
+	staffNumber := strings.TrimSpace(in.StaffNumber)
+	if staffNumber == "" {
+		return nil, domain.NewValidation("staffNumber", "required")
+	}
+	firstName := strings.TrimSpace(in.FirstName)
+	if firstName == "" {
+		return nil, domain.NewValidation("firstName", "required")
+	}
+	lastName := strings.TrimSpace(in.LastName)
+	if lastName == "" {
+		return nil, domain.NewValidation("lastName", "required")
+	}
+	if !in.Role.Valid() {
+		return nil, domain.NewValidation("role", "unknown_role")
+	}
+	if len(in.Password) < MinimumTemporaryPasswordLen {
+		return nil, domain.NewValidationf("password", "too_short",
+			"at least %d characters", MinimumTemporaryPasswordLen)
+	}
+
+	// A duplicate staff number is the one error an administrator will hit, and
+	// "that number is already in use" is far more useful than a 500.
+	if existing, err := s.users.FindByStaffNumberOrEmail(ctx, s.pool, staffNumber); err == nil && existing != nil {
+		return nil, domain.Publicf(domain.ErrConflict,
+			"Staff number %s is already in use by %s %s.", staffNumber, existing.FirstName, existing.LastName)
+	}
+
+	hash, err := password.Hash(in.Password, password.DefaultParams)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+
+	user := &domain.User{
+		ID:          uuid.New(),
+		StaffNumber: staffNumber,
+		FirstName:   firstName,
+		LastName:    lastName,
+		IsActive:    true,
+	}
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.users.Create(ctx, tx, user, hash, in.ActorID); err != nil {
+			return err
+		}
+		return s.users.GrantRole(ctx, tx, user.ID, in.Role, in.ActorID)
+	}); err != nil {
+		return nil, err
+	}
+
+	log.Info().
+		Str("actor_id", in.ActorID.String()).
+		Str("user_id", user.ID.String()).
+		Str("role", string(in.Role)).
+		Msg("staff account created")
+
+	return s.users.FindByID(ctx, s.pool, user.ID)
 }

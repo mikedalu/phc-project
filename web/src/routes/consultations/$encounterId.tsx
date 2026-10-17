@@ -12,6 +12,7 @@ import { addDiagnosis, addLabOrder, addPrescription } from '@/features/consultat
 import { formatMoney } from '@/features/billing/write';
 import { searchICD10, type ICD10Entry } from '@/features/consultation/icd10';
 import type { DiagnosisRow } from '@/db/types';
+import { humanError } from '@/lib/errors';
 
 /**
  * The consultation screen: what the doctor concluded and what they ordered.
@@ -147,7 +148,7 @@ function DiagnosisPanel({
       setNotes('');
       toast.success('Diagnosis recorded.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not record the diagnosis.');
+      toast.error(humanError(error, 'Could not record the diagnosis.'));
     } finally {
       setSaving(false);
     }
@@ -278,7 +279,7 @@ function LabOrderPanel({
       });
       toast.success(`${selected.name} ordered.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not raise the order.');
+      toast.error(humanError(error, 'Could not raise the test order.'));
     } finally {
       setSaving(false);
     }
@@ -415,7 +416,7 @@ function PrescriptionPanel({ patientId, encounterId }: { patientId: string; enco
       toast.success(`Prescribed · ${formatMoney(result.totalMinor)} billed.`);
       setLines([]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not prescribe.');
+      toast.error(humanError(error, 'Could not save the prescription.'));
     } finally {
       setSaving(false);
     }

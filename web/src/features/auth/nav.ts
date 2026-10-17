@@ -27,7 +27,6 @@ export interface NavEntry {
   icon: LucideIcon;
   roles: AppRole[];
   /** Set for screens that are still stubs, so the UI can say so honestly. */
-  plannedSprint?: string;
 }
 
 export const ROLE_NAV: NavEntry[] = [
@@ -38,7 +37,6 @@ export const ROLE_NAV: NavEntry[] = [
     icon: Users,
     // Everyone who might need to find a patient, which is everyone.
     roles: ALL_ROLES,
-    plannedSprint: 'Sprint 3',
   },
   {
     to: '/queue',
@@ -47,7 +45,6 @@ export const ROLE_NAV: NavEntry[] = [
     // Front desk starts an encounter; nurses and doctors move it along.
     // A cashier or pharmacist has no business on the triage board.
     roles: ['front_desk', 'nurse', 'doctor', 'admin'],
-    plannedSprint: 'Sprint 4',
   },
   {
     to: '/households',
@@ -83,14 +80,11 @@ export const ROLE_NAV: NavEntry[] = [
   { to: '/sync', label: 'Sync status', icon: Activity, roles: ALL_ROLES },
   { to: '/admin/users', label: 'Staff accounts', icon: UserCog, roles: ['admin'] },
   { to: '/admin/activity', label: 'Activity', icon: History, roles: ['admin'] },
-  {
-    to: '/dev/sync',
-    label: 'Sync probe',
-    icon: FlaskConical,
-    roles: ['admin'],
-    plannedSprint: 'Sprint 2',
-  },
 ];
+
+// The diagnostic pages under /dev (sync probe, probe list) are NOT in the
+// navigation: they are for whoever maintains the system, not for the staff at
+// the counter. The routes still exist because the test suite drives them.
 
 /** The items the holder of `roles` may see, in table order. */
 export function navForRoles(roles: readonly string[]): NavEntry[] {

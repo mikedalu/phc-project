@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { startVisit } from '@/features/queue/write';
 import { toast } from 'sonner';
 import { useLiveQuery as useVitalsQuery } from 'dexie-react-hooks';
+import { humanError } from '@/lib/errors';
 
 /**
  * Patient profile.
@@ -37,7 +38,7 @@ function PatientProfilePage() {
       });
       await navigate({ to: '/queue' });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not start the visit.');
+      toast.error(humanError(error, 'Could not start the visit.'));
       setStarting(false);
     }
   };

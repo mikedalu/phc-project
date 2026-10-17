@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { issueReferral } from '@/features/referrals/api';
 import { useSession } from '@/features/auth/session';
+import { humanError } from '@/lib/errors';
 
 /**
  * Issue a referral.
@@ -79,7 +80,7 @@ function NewReferralPage() {
       setIssuedNumber(result.referral.referralNumber);
       toast.success(`Referral ${result.referral.referralNumber} issued.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not issue the referral.');
+      toast.error(humanError(error, 'Could not issue the referral.'));
     } finally {
       setBusy(false);
     }

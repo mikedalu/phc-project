@@ -8,6 +8,7 @@ import { db } from '@/db';
 import { Button } from '@/components/ui/button';
 import { dispensePrescription } from '@/features/pharmacy/write';
 import type { PrescriptionRow } from '@/db/types';
+import { humanError } from '@/lib/errors';
 
 /**
  * The pharmacy counter.
@@ -119,7 +120,7 @@ function RxCard({
       await dispensePrescription(rx.id);
       toast.success(`${rx.prescriptionNumber} dispensed.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not dispense.');
+      toast.error(humanError(error, 'Could not dispense the prescription.'));
     } finally {
       setBusy(false);
     }

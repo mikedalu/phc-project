@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { collectOrder, recordResult } from '@/features/lab/write';
 import type { LabOrderRow, LabResultRow } from '@/db/types';
 import { cn } from '@/lib/cn';
+import { humanError } from '@/lib/errors';
 
 /**
  * The lab worklist.
@@ -128,7 +129,7 @@ function OrderCard({ order, patientName }: { order: LabOrderRow; patientName: st
       await collectOrder(order.id);
       toast.success('Specimen collected.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not collect the specimen.');
+      toast.error(humanError(error, 'Could not collect the specimen.'));
     } finally {
       setBusy(false);
     }
@@ -205,7 +206,7 @@ function ResultForm({ order, onDone }: { order: LabOrderRow; onDone: () => void 
       toast.success('Result recorded.');
       onDone();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not record the result.');
+      toast.error(humanError(error, 'Could not record the result.'));
       setSaving(false);
     }
   };

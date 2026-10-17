@@ -1,226 +1,182 @@
-import { useEffect, useState } from 'react';
-import { Link, createRoute, useRouter } from '@tanstack/react-router';
-import { Check, Database, Loader2, Server, Smartphone, X } from 'lucide-react';
+import { createRoute, Link } from '@tanstack/react-router';
+import { useLiveQuery } from 'dexie-react-hooks';
+import {
+  Banknote,
+  BedDouble,
+  FlaskConical,
+  Pill,
+  Stethoscope,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { Route as rootRoute } from '@/routes/__root';
-import { db, openDatabase } from '@/db';
-import { fetchHealth, fetchMeta, fetchReady, type MetaResponse } from '@/lib/api';
-import { cn } from '@/lib/cn';
+import { db } from '@/db';
+import { useSession } from '@/features/auth/session';
 
 /**
- * The walking skeleton.
+ * The dashboard.
  *
- * This page exists to answer ONE question: can a request travel
- * browser → Cloudflare Pages → Cloud Run → Neon → browser?
- *
- * It deliberately does more than ping /health. /health reads nothing, so a
- * green tick there proves only that the process is alive. The chain is only
- * proven by `/meta`, which runs a real SQL query (`count(*) FROM facilities`)
- * and therefore touches pgx, the pooler, and Neon.
+ * Everything on this page answers a question a member of staff actually asks at
+ * the start of a shift: who is waiting, what needs doing, how much has been
+ * taken. It reads Dexie, so it is correct with no network, and it shows nothing
+ * about how the software is built.
  */
-
-type CheckState =
-  | { kind: 'loading' }
-  | { kind: 'ok'; detail: string }
-  | { kind: 'error'; detail: string };
-
-function useHealthCheck<T>(
-  label: string,
-  run: () => Promise<T>,
-  describe: (value: T) => string,
-): [string, CheckState] {
-  const [state, setState] = useState<CheckState>({ kind: 'loading' });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    run()
-      .then((value) => {
-        if (!cancelled) setState({ kind: 'ok', detail: describe(value) });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setState({
-            kind: 'error',
-            detail: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      });
-
-    // Guards against a state update after unmount, which React 19 warns about
-    // and which produces a confusing console error far from its cause.
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return [label, state];
-}
-
-function StatusRow({
-  label,
-  state,
-  icon: Icon,
-}: {
-  label: string;
-  state: CheckState;
-  icon: typeof Server;
-}) {
-  return (
-    <li className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0">
-      <span
-        className={cn(
-          'mt-0.5 grid size-6 shrink-0 place-items-center rounded-sm',
-          state.kind === 'ok' && 'bg-success-soft text-success-fg',
-          state.kind === 'error' && 'bg-danger-soft text-danger-fg',
-          state.kind === 'loading' && 'bg-surface-sunken text-text-muted',
-        )}
-      >
-        {state.kind === 'loading' ? (
-          <Loader2 aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />
-        ) : state.kind === 'ok' ? (
-          <Check aria-hidden="true" className="size-3.5" />
-        ) : (
-          <X aria-hidden="true" className="size-3.5" />
-        )}
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <Icon aria-hidden="true" className="size-3.5 text-text-muted" />
-          <p className="text-sm font-medium text-text">{label}</p>
-        </div>
-        <p
-          className={cn(
-            'mt-0.5 break-words text-xs',
-            state.kind === 'error' ? 'text-danger' : 'text-text-muted',
-          )}
-        >
-          {state.kind === 'loading' ? 'Checking…' : state.detail}
-        </p>
-      </div>
-    </li>
-  );
-}
-
-function DashboardPage() {
-  const router = useRouter();
-
-  const [metaLabel, metaState] = useHealthCheck(
-    'API + database round trip (/meta)',
-    () => fetchMeta(),
-    (result) =>
-      `schema v${result.data.schemaVersion} · ${result.data.facilityCount} facility row · api ${result.data.serverVersion}`,
-  );
-
-  const [readyLabel, readyState] = useHealthCheck(
-    'Database readiness (/ready)',
-    () => fetchReady(),
-    (result) => `database ${result.data.database}`,
-  );
-
-  const [healthLabel, healthState] = useHealthCheck(
-    'API liveness (/health)',
-    () => fetchHealth(),
-    (result) => `version ${result.data.version} · server time ${result.data.time}`,
-  );
-
-  const [localLabel, localState] = useHealthCheck(
-    'Local database (Dexie / IndexedDB)',
-    async () => {
-      await openDatabase();
-      const tables = db.tables.map((t) => t.name);
-      const outbox = await db.outbox.count();
-      return { tables, outbox };
-    },
-    ({ tables, outbox }) =>
-      `${tables.length} tables ready · ${outbox} queued operation${outbox === 1 ? '' : 's'}`,
-  );
-
-  const [meta, setMeta] = useState<MetaResponse | null>(null);
-  useEffect(() => {
-    fetchMeta()
-      .then((r) => setMeta(r.data))
-      .catch(() => setMeta(null));
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-text">
-          Sprint 0 — walking skeleton
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-text-subtle">
-          This page proves the whole chain works before any clinical feature is
-          written: browser → Cloudflare Pages → Cloud Run → Neon → browser. When
-          all four checks below are green, the deployment risk is retired.
-        </p>
-      </div>
-
-      <section className="overflow-hidden rounded-md border border-border bg-surface shadow-sm">
-        <ul>
-          <StatusRow label={metaLabel} state={metaState} icon={Database} />
-          <StatusRow label={readyLabel} state={readyState} icon={Server} />
-          <StatusRow label={healthLabel} state={healthState} icon={Server} />
-          <StatusRow label={localLabel} state={localState} icon={Smartphone} />
-        </ul>
-      </section>
-
-      {meta && (
-        <section className="rounded-md border border-border bg-surface p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-text">
-            Server configuration (GET /meta)
-          </h2>
-          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
-            {(
-              [
-                ['Schema version', String(meta.schemaVersion)],
-                ['Server version', meta.serverVersion],
-                ['Min client version', meta.minClientVersion],
-                ['Sync batch size', String(meta.syncMaxBatchSize)],
-                ['Referral TTL', `${meta.referralTtlHours}h`],
-                ['Offline grace', `${meta.offlineGracePeriodHours}h`],
-                ['Offline policy', meta.offlinePolicy],
-                ['Server time', new Date(meta.serverTime).toLocaleTimeString()],
-              ] as const
-            ).map(([term, value]) => (
-              <div key={term}>
-                <dt className="text-xs text-text-muted">{term}</dt>
-                <dd className="tnum text-sm font-medium text-text">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      )}
-
-      <section className="rounded-md border border-border bg-surface p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-text">Next</h2>
-        <p className="mt-1 text-sm text-text-subtle">
-          Sprint 1 adds authentication, roles and device identity. The{' '}
-          <Link to="/sync" className="font-medium text-primary underline">
-            sync status
-          </Link>{' '}
-          page currently reports an empty outbox, which is the truth — nothing
-          can be queued until Sprint 2 builds the sync engine.
-        </p>
-        <button
-          type="button"
-          onClick={() => void router.invalidate()}
-          className={cn(
-            'mt-3 inline-flex h-(--spacing-control) items-center rounded-sm',
-            'bg-primary px-3 text-sm font-medium text-text-inverse',
-            'transition-colors duration-100 hover:bg-primary-hover',
-          )}
-        >
-          Re-run checks
-        </button>
-      </section>
-    </div>
-  );
-}
-
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
 });
+
+function DashboardPage() {
+  const user = useSession((s) => s.user);
+
+  const queue = useLiveQuery(() => db.encounters.filter((e) => e.status === 'active').toArray(), [], []);
+  const patients = useLiveQuery(() => db.patients.count(), [], 0);
+  const invoices = useLiveQuery(() => db.invoices.toArray(), [], []);
+  const orders = useLiveQuery(() => db.lab_orders.toArray(), [], []);
+  const prescriptions = useLiveQuery(() => db.prescriptions.toArray(), [], []);
+  const admissions = useLiveQuery(() => db.admissions.toArray(), [], []);
+  const charges = useLiveQuery(() => db.charges.toArray(), [], []);
+  const allocations = useLiveQuery(() => db.payment_allocations.toArray(), [], []);
+
+  const waitingVitals = queue.filter((e) => e.workflowStage === 'registered').length;
+  const waitingDoctor = queue.filter((e) => ['vitals_done', 'awaiting_doctor'].includes(e.workflowStage)).length;
+  const inConsultation = queue.filter((e) => e.workflowStage === 'in_consultation').length;
+
+  const toCollect = orders.filter((o) => o.status === 'ordered').length;
+  const awaitingResult = orders.filter((o) => o.status === 'collected').length;
+
+  const toDispense = prescriptions.filter((p) => p.status === 'paid').length;
+  const awaitingPayment = prescriptions.filter((p) => p.status === 'pending_payment').length;
+
+  const inpatients = admissions.filter((a) => a.status === 'admitted').length;
+  const unpaid = invoices.filter((i) => i.status === 'unpaid' || i.status === 'partially_paid').length;
+
+  const settledChargeIDs = new Set(allocations.map((a) => a.chargeId));
+  const outstandingMinor = charges
+    .filter((c) => c.status === 'active' && !settledChargeIDs.has(c.id))
+    .reduce((sum, c) => sum + c.amountMinor, 0);
+
+  const roles = user?.roles ?? [];
+  const is = (role: string) => roles.includes(role);
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight text-text">
+          {greeting()}, {user?.displayName ?? 'there'}
+        </h1>
+        <p className="mt-1 text-sm text-text-muted">
+          {patients} patient{patients === 1 ? '' : 's'} on this device · {queue.length} open visit
+          {queue.length === 1 ? '' : 's'}
+        </p>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Tile label="Waiting for vitals" value={waitingVitals} to="/queue" icon={Stethoscope} />
+        <Tile label="Waiting for doctor" value={waitingDoctor} to="/queue" icon={Stethoscope} />
+        <Tile label="In consultation" value={inConsultation} to="/queue" icon={Stethoscope} />
+        <Tile label="Patients" value={patients} to="/patients" icon={Users} />
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Tile label="Specimens to collect" value={toCollect} to="/lab" icon={FlaskConical} />
+        <Tile label="Results to enter" value={awaitingResult} to="/lab" icon={FlaskConical} />
+        <Tile label="Prescriptions ready" value={toDispense} to="/pharmacy" icon={Pill} />
+        <Tile label="Prescriptions unpaid" value={awaitingPayment} to="/pharmacy" icon={Pill} />
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Tile label="Inpatients" value={inpatients} to="/ward" icon={BedDouble} />
+        <Tile label="Unpaid invoices" value={unpaid} to="/billing" icon={Banknote} />
+        <Tile
+          label="Outstanding"
+          value={formatMoney(outstandingMinor)}
+          to="/billing"
+          icon={Banknote}
+          isMoney
+        />
+        {is('admin') || is('front_desk') ? (
+          <Link
+            to="/patients/new"
+            className="flex items-center gap-3 rounded-md border border-border bg-surface p-4 hover:border-border-strong"
+          >
+            <span className="grid size-9 place-items-center rounded-sm bg-primary-soft text-primary-fg">
+              <UserPlus aria-hidden="true" className="size-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-medium text-text">Register a patient</span>
+              <span className="block text-xs text-text-muted">Works without a connection</span>
+            </span>
+          </Link>
+        ) : null}
+      </section>
+
+      <section className="rounded-md border border-border bg-surface p-4">
+        <h2 className="text-sm font-medium text-text">Your shortcuts</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Shortcut to="/queue" label="Open the queue" />
+          <Shortcut to="/patients" label="Find a patient" />
+          {is('pharmacist') || is('admin') ? <Shortcut to="/pharmacy" label="Pharmacy" /> : null}
+          {is('lab_scientist') || is('admin') ? <Shortcut to="/laboratory" label="Laboratory" /> : null}
+          {is('cashier') || is('front_desk') || is('accountant') || is('admin') ? (
+            <Shortcut to="/billing" label="Billing" />
+          ) : null}
+          {is('nurse') || is('doctor') || is('admin') ? <Shortcut to="/ward" label="Ward" /> : null}
+          {is('admin') ? <Shortcut to="/admin/users" label="Staff accounts" /> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  to,
+  icon: Icon,
+  isMoney,
+}: {
+  label: string;
+  value: number | string;
+  to: string;
+  icon: typeof Users;
+  isMoney?: boolean;
+}) {
+  return (
+    <Link
+      to={to}
+      className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-border-strong"
+    >
+      <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-text-muted">
+        <Icon aria-hidden="true" className="size-3.5" />
+        {label}
+      </span>
+      <span className={isMoney ? 'mt-1 block text-xl font-semibold tnum text-text' : 'mt-1 block text-3xl font-semibold tnum text-text'}>
+        {value}
+      </span>
+    </Link>
+  );
+}
+
+function Shortcut({ to, label }: { to: string; label: string }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-sm border border-border px-3 py-1.5 text-sm text-primary hover:border-border-strong"
+    >
+      {label}
+    </Link>
+  );
+}
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function formatMoney(minor: number): string {
+  return `₦${Math.floor(minor / 100).toLocaleString()}.${String(minor % 100).padStart(2, '0')}`;
+}
