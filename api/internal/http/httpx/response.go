@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 // HeaderRequestID is the correlation ID echoed to the client and attached to
@@ -151,6 +152,23 @@ func Unprocessable(c *gin.Context, code, message string, details any) {
 // without exposing internals.
 func InternalError(c *gin.Context, message string) {
 	Fail(c, 500, "INTERNAL_ERROR", message, nil)
+}
+
+// LogInternal records an unexpected error against the request ID.
+//
+// Call this immediately before returning a 500, so the operator can correlate
+// the user's report ("I got an error at 14:32") with the actual cause. The
+// client sees only a generic message; the log holds the detail.
+//
+// Deliberately does NOT log request bodies: they may contain patient data.
+func LogInternal(c *gin.Context, err error) {
+	log.Error().
+		Err(err).
+		Str("request_id", GetRequestID(c)).
+		Str("method", c.Request.Method).
+		Str("path", c.Request.URL.Path).
+		Str("client_ip", c.ClientIP()).
+		Msg("unhandled request error")
 }
 
 func ServiceUnavailable(c *gin.Context, code, message string) {

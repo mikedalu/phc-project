@@ -22,8 +22,12 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/mikedalu/phc-records/api/internal/config"
+	"github.com/mikedalu/phc-records/api/internal/http/handler"
 	"github.com/mikedalu/phc-records/api/internal/http/httpx"
+	"github.com/mikedalu/phc-records/api/internal/http/middleware"
 	"github.com/mikedalu/phc-records/api/internal/platform/db"
+	"github.com/mikedalu/phc-records/api/internal/platform/token"
+	"github.com/mikedalu/phc-records/api/internal/service"
 )
 
 // buildVersion is injected at build time:
@@ -76,7 +80,17 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router := buildRouter(cfg, pool)
+	// Access-token issuer. Constructed here so a bad secret fails at startup
+	// rather than on the first login.
+	issuer, err := token.NewIssuer(cfg.JWTSecret, cfg.AccessTokenTTL)
+	if err != nil {
+		return fmt.Errorf("jwt issuer: %w", err)
+	}
+
+	authSvc := service.NewAuth(pool, issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	authHandler := handler.NewAuth(authSvc)
+
+	router := buildRouter(cfg, pool, authHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -136,7 +150,7 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
+func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, issuer *token.Issuer) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -149,6 +163,9 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 	router.Use(httpx.RequestID())
 	router.Use(httpx.SecurityHeaders())
 	router.Use(httpx.CORS(cfg))
+	// Publishes TRUST_PROXY so handlers know whether CF-Connecting-IP can be
+	// believed. Without it, per-IP rate limiting silently measures the proxy.
+	router.Use(middleware.TrustProxy(cfg.TrustProxy))
 
 	// Trusted proxies: behind Cloudflare/Cloud Run the socket peer is the proxy,
 	// so client IPs in the audit log would all be the same address.
@@ -199,6 +216,25 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool) *gin.Engine {
 
 	// ─── API v1 ────────────────────────────────────────────────────
 	v1 := router.Group("/api/v1")
+
+	// ─── authentication (public) ───────────────────────────────────
+	// Login and refresh are unauthenticated BY NECESSITY: they are how you
+	// obtain a token in the first place. Both are rate limited inside the
+	// service layer.
+	auth := v1.Group("/auth")
+	{
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/refresh", authHandler.Refresh)
+		auth.POST("/logout", authHandler.Logout)
+	}
+
+	// ─── authentication (protected) ────────────────────────────────
+	authed := v1.Group("")
+	authed.Use(middleware.RequireAuth(issuer))
+	{
+		authed.GET("/auth/session", authHandler.Session)
+		authed.POST("/auth/change-password", authHandler.ChangePassword)
+	}
 
 	// /meta is what the client calls at boot: everything it needs to configure
 	// itself, in one request. In Sprint 0 it also proves the full round trip,

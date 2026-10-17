@@ -12,6 +12,15 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+# Go build/module caches. Overridable, because $HOME can be read-only in
+# containers, CI sandboxes and restricted accounts — where the default
+# (~/.cache/go-build) fails with a confusing "read-only file system" error that
+# looks like a code problem. Re-run as:  make test-api GOCACHE=/tmp/gocache
+GOCACHE     ?= $(shell go env GOCACHE 2>/dev/null)
+GOMODCACHE  ?= $(shell go env GOMODCACHE 2>/dev/null)
+export GOCACHE
+export GOMODCACHE
+
 API_DIR    := api
 WEB_DIR    := web
 MIGRATIONS := $(API_DIR)/db/migrations
@@ -96,8 +105,19 @@ vet: ## Run go vet
 	cd $(API_DIR) && go vet ./...
 
 .PHONY: test-api
-test-api: ## Run Go tests
+test-api: ## Run Go unit tests (no database; integration tests skip)
 	cd $(API_DIR) && go test ./... -count=1
+
+.PHONY: test-api-db
+test-api-db: ## Run ALL Go tests including integration ones, against Neon
+	@test -f .env || { echo "!! .env missing"; exit 1; }
+	@set -a; . ./.env; set +a; \
+	 test -n "$$MIGRATION_DATABASE_URL" || { echo "!! MIGRATION_DATABASE_URL empty"; exit 1; }; \
+	 cd $(API_DIR) && SERVICE_TEST_DATABASE_URL="$$MIGRATION_DATABASE_URL" go test ./... -count=1 -v
+
+.PHONY: test-api-cover
+test-api-cover: ## Go tests with a coverage summary
+	cd $(API_DIR) && go test ./... -count=1 -cover
 
 .PHONY: check
 check: fmt vet test-api ## Format, vet and test the backend

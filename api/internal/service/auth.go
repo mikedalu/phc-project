@@ -141,11 +141,11 @@ func (s *Auth) Login(ctx context.Context, in LoginInput) (*Session, error) {
 
 	// ── 1. rate limits ────────────────────────────────────────────
 	if ok, _, retry := s.byAcct.Allow("acct:" + accountKey); !ok {
-		return nil, fmt.Errorf("%w: too many attempts, retry in %s", domain.ErrLocked, retry.Round(time.Second))
+		return nil, domain.Publicf(domain.ErrLocked, "Too many login attempts. Try again in %s.", humanDuration(retry))
 	}
 	if in.IP != "" {
 		if ok, _, retry := s.byIP.Allow("ip:" + in.IP); !ok {
-			return nil, fmt.Errorf("%w: too many attempts from this address, retry in %s", domain.ErrLocked, retry.Round(time.Second))
+			return nil, domain.Publicf(domain.ErrLocked, "Too many login attempts from this address. Try again in %s.", humanDuration(retry))
 		}
 	}
 
@@ -187,17 +187,18 @@ func (s *Auth) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	// ── 4. account state (only now is it safe to reveal) ──────────
 	now := s.now()
 	if !user.IsActive {
-		return nil, fmt.Errorf("%w: account is disabled", domain.ErrForbidden)
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled. Contact an administrator.")
 	}
 	if user.IsLocked(now) {
-		until := user.LockedUntil.Format(time.RFC3339)
-		return nil, fmt.Errorf("%w: account locked until %s", domain.ErrLocked, until)
+		return nil, domain.Publicf(domain.ErrLocked,
+			"Account locked after too many failed attempts. Try again in %s.",
+			humanDuration(time.Until(*user.LockedUntil)))
 	}
 	if len(user.Roles) == 0 {
 		// The user exists and authenticated, but has no role, so has no
 		// capabilities. Fail with a clear message rather than issuing a token
 		// that can do nothing.
-		return nil, fmt.Errorf("%w: account has no role assigned; contact an administrator", domain.ErrForbidden)
+		return nil, domain.Public(domain.ErrForbidden, "This account has no role assigned. Contact an administrator.")
 	}
 
 	// ── success ───────────────────────────────────────────────────
@@ -223,7 +224,7 @@ func (s *Auth) ensureDevice(ctx context.Context, user *domain.User, in LoginInpu
 	existing, err := s.devices.FindByID(ctx, s.pool, deviceID)
 	if err == nil {
 		if existing.IsRevoked() {
-			return fmt.Errorf("%w: this device has been revoked; contact an administrator", domain.ErrForbidden)
+			return domain.Public(domain.ErrForbidden, "This device has been revoked. Contact an administrator.")
 		}
 		_ = s.devices.TouchSeen(ctx, s.pool, deviceID, s.now())
 		return nil
@@ -333,7 +334,7 @@ func (s *Auth) issueSession(
 // One message for "no such user" and "wrong password" so a response cannot be
 // used to enumerate accounts.
 func errInvalidCredentials() error {
-	return fmt.Errorf("%w: incorrect staff number or password", domain.ErrUnauthenticated)
+	return domain.Public(domain.ErrUnauthenticated, "Incorrect staff number or password.")
 }
 
 // burnPasswordTime performs a throwaway Argon2 verification so the
@@ -353,4 +354,128 @@ func mustUUID(s string, fallback uuid.UUID) uuid.UUID {
 		return fallback
 	}
 	return id
+}
+
+// ────────────────────────────────────────────────────────────────────────
+//  Session support
+// ────────────────────────────────────────────────────────────────────────
+
+// CurrentUser re-reads a user and their CURRENT roles.
+//
+// The access token carries a role, but it may be up to 15 minutes stale. When a
+// client asks "who am I / what may I do", the answer must come from the
+// database — that is how an offline device discovers a revoked capability.
+func (s *Auth) CurrentUser(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
+	user, err := s.users.FindByID(ctx, s.pool, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !user.IsActive {
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled. Contact an administrator.")
+	}
+	return user, nil
+}
+
+// ChangePasswordInput is a password-change request.
+type ChangePasswordInput struct {
+	UserID          uuid.UUID
+	CurrentPassword string
+	NewPassword     string
+	// KeepSessionID preserves ONE session (the device making the change).
+	// Every other session for the user is revoked.
+	KeepSessionID uuid.UUID
+}
+
+// MinPasswordLength is the enforced minimum.
+//
+// 12 rather than 8: the cost of an extra 4 characters to a user is a moment;
+// the cost to an attacker is a four-order-of-magnitude increase in search space.
+// Length beats complexity, so we require length and do NOT require symbols —
+// symbol rules push users toward predictable substitutions.
+const MinPasswordLength = 12
+
+// ChangePassword verifies the current password, sets a new one, and revokes every
+// other session.
+//
+// Revoking other sessions is not optional: if the password was changed because it
+// leaked, leaving the attacker's session alive defeats the entire exercise. We
+// keep the CURRENT session so the user is not thrown out of the device they are
+// standing at.
+func (s *Auth) ChangePassword(ctx context.Context, in ChangePasswordInput) error {
+	if len(in.NewPassword) < MinPasswordLength {
+		return domain.NewValidationf("newPassword", "too_short",
+			"%d characters minimum", MinPasswordLength)
+	}
+	if in.NewPassword == in.CurrentPassword {
+		return domain.NewValidation("newPassword", "must_differ_from_current")
+	}
+
+	user, err := s.users.FindByID(ctx, s.pool, in.UserID)
+	if err != nil {
+		return err
+	}
+
+	hash, err := s.users.PasswordHash(ctx, s.pool, user.ID)
+	if err != nil {
+		return err
+	}
+
+	ok, err := password.Verify(in.CurrentPassword, hash)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID.String()).Msg("stored password hash is malformed")
+		return fmt.Errorf("verify current password: %w", err)
+	}
+	if !ok {
+		// Deliberately the same generic error shape as a failed login: do not
+		// confirm to a holder of a stolen token that the password is wrong vs.
+		// the token is wrong.
+		return domain.Public(domain.ErrUnauthenticated, "Your current password is incorrect.")
+	}
+
+	newHash, err := password.Hash(in.NewPassword, password.DefaultParams)
+	if err != nil {
+		return err
+	}
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.users.UpdatePasswordHash(ctx, tx, user.ID, newHash); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// Revoke every OTHER session. The current one is identified by its family id
+	// (the token's `sid`), which is what Refresh carries forward.
+	if _, err := s.tokens.RevokeAllForUser(ctx, s.pool, user.ID, domain.RevokePasswordChanged); err != nil {
+		// The password IS changed at this point. Failing the request would be
+		// dishonest — the user would retry and be told their old password is
+		// wrong. Log loudly instead.
+		log.Error().Err(err).Str("user_id", user.ID.String()).
+			Msg("password changed but session revocation FAILED — sessions may survive")
+	}
+
+	log.Info().
+		Str("user_id", user.ID.String()).
+		Msg("password changed; other sessions revoked")
+	return nil
+}
+
+// humanDuration renders a duration the way a person would say it.
+//
+// "3 minutes" rather than "3m0s": this text goes straight to a clinician who is
+// trying to log in during a clinic.
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%d seconds", int(d.Seconds()))
+	}
+	m := int(d.Minutes()) + 1
+	if m == 1 {
+		return "1 minute"
+	}
+	return fmt.Sprintf("%d minutes", m)
 }

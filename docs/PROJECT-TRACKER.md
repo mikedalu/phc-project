@@ -30,7 +30,7 @@ Update this table the moment a sprint closes. It is the first thing to show your
 | Sprint | Goal | Status | Started | Completed | Planned % | Actual % | Notes |
 |---|---|---|---|---|---|---|---|
 | 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
-| 1 | Auth, roles & device identity | 🟡 | | | 17 | 60% | Schema, password, JWT, domain, repos and the full auth service done. **31 tests.** Handlers + middleware + device keys next |
+| 1 | Auth, roles & device identity | 🟡 | | | 17 | 80% | **Working login, refresh, logout and session endpoints, verified end to end via curl.** 31 tests green against live Neon. Device keys remain |
 | 2 | Sync engine | ⬜ | | | | | |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
@@ -127,17 +127,17 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 1.4 | `00008_seed_admin_role.sql` | DB | ✅ | **NOT in the original plan** — the seeded admin had no role and could log in but authorise nothing |
 | 1.5 | Argon2id hashing + verification helpers | BE | ✅ | **10 tests pass.** 78 ms hash / 73 ms verify at 64 MiB. Includes a 1 GiB ceiling against a DoS via tampered cost params |
 | 1.6 | JWT issue/verify (access) | BE | ✅ | **9 tests**, incl. a verified `alg=none` forgery (empty signature, payload claiming admin) |
-| 1.7 | Login service with dual rate limiting | BE | ✅ | Service done and tested (lockout, dummy-hash timing, no enumeration). **HTTP handler still to write** |
-| 1.8 | Refresh rotation with reuse detection | BE | ✅ | **Service done, tested against real Postgres.** Reuse revokes the whole family, verified end to end |
-| 1.9 | Logout service | BE | ✅ | Idempotent by design — a retried logout after a lost response must not error |
-| 1.10 | `GET /auth/session` | BE | ⬜ |
-| 1.11 | Auth middleware + role middleware | BE | ⬜ | Batch 4 |
+| 1.7 | `POST /auth/login` with dual rate limiting | BE | ✅ | Verified live: 200 with tokens, 401 on wrong password, identical error for unknown user |
+| 1.8 | `POST /auth/refresh` with reuse detection | BE | ✅ | Verified live end to end: reuse of a consumed token returns 401 **and** kills the sibling token |
+| 1.9 | `POST /auth/logout` | BE | ✅ | 204, idempotent |
+| 1.10 | `GET /auth/session` | BE | ✅ | Returns the user DTO, 401 without/with a bad token |
+| 1.11 | Auth middleware + role middleware | BE | ✅ | `RequireAuth` verifies and publishes an Actor; `RequireRole` is a coarse gate. Docs state plainly it is **not** the security boundary |
 | 1.12 | ECDSA P-256 device keypair + registration | FE | ⬜ |
 | 1.13 | Login screen | FE | ⬜ |
 | 1.14 | Session store (Zustand) + token refresh interceptor | FE | ⬜ |
 | 1.15 | Role-based nav + route guards | FE | ⬜ |
 | 1.16 | Configurable offline grace window + `OFFLINE_POLICY` logic | FE | ⬜ |
-| 1.17 | Tests: login, refresh reuse, RBAC | TEST | 🟡 | 13 integration tests + 9 token + 9 password = **31**. RBAC tests come with the middleware |
+| 1.17 | Tests: login, refresh reuse, RBAC | TEST | 🟡 | **31 pass against live Neon.** RBAC-specific tests still to add with the first role-gated endpoint |
 
 ### Sprint 2 — Sync engine
 
@@ -348,6 +348,8 @@ Record every decision that would be expensive to reverse. This is also the raw m
 | D25 | | `devices.registered_by` is **nullable** | `user_id NOT NULL` | A PHC workstation is shared — front desk, cashier and triage nurse may all use one machine — so a device does not belong to one user. This also broke a circular FK (`devices.user_id -> users`, `refresh_tokens.device_id -> devices`). The session owner is recorded per refresh token instead | 1 |
 | D26 | | Identifier is **trimmed, never lowercased**, and the email comparison uses an explicit `$1::citext` cast | One normalised comparison for both columns | Two separate bugs, both caught by integration tests. (a) Lowercasing broke every staff number, because `staff_number` is case-sensitive TEXT — the seeded admin could not log in at all. (b) A Go `string` parameter is sent as `text`, and `citext = text` falls back to the case-SENSITIVE `text = text` operator, so mixed-case emails failed. The second is nasty because the same query in `psql` with a literal works (a literal is typed `citext`). Casting `$1` rather than the column keeps the index usable | 1 |
 | D27 | | In-memory, **per-instance** login rate limiter, with DB-backed account lockout as the real control | Redis-backed shared limiter | The limiter is a speed bump: with `--max-instances=5` an attacker gets 5× the allowance. The account lockout is database-backed and therefore consistent, which is why it carries the real weight. A shared store is recorded as future work rather than pretended away | 1 |
+| D28 | | `domain.PublicError` separates the client-facing message from the internal error | Return `err.Error()` to clients | Wrapping with `%w` made messages leak implementation vocabulary: `"unauthenticated: incorrect staff number or password"`. That is sloppy and hands an attacker the internal failure taxonomy. `PublicError.Unwrap` still satisfies `errors.Is` for classification, while `Message()` supplies text a clinician can read. `httpx.Error` now falls back to a generic per-kind message for anything unrecognised, so a raw SQL error can never reach a user | 1 |
+| D29 | | `Makefile` exports overridable `GOCACHE`/`GOMODCACHE` | Use Go defaults | Hit a confusing `[setup failed] — read-only file system` when `$HOME` was not writable. It looked like a code error but was the build cache. Now `make test-api-db GOCACHE=/tmp/gocache` works anywhere, which matters for CI and containerised builds | 1 |
 
 ---
 
@@ -371,6 +373,7 @@ The habit that saves the project: two minutes at the end of every session.
 | Sprint 1 batch 1 | — | Migrations 00005–00008 (user_roles, devices, refresh_tokens, admin role seed) validated on a throwaway PG18 then applied to Neon → version 8. Wrote `internal/platform/password` with 10 tests; measured 78 ms hash / 73 ms verify at production cost. | Batch 2: JWT (access + refresh with reuse detection), auth service, login/refresh/logout handlers, RBAC middleware | — |
 | Sprint 1 batch 2 | — | `internal/domain`: sentinel errors + `ValidationError` + the eight roles with `HasRole`/`HasAnyRole`. `internal/platform/token`: HS256 access tokens, injectable clock, 9 tests incl. a **verified `alg=none` forgery** (empty signature, payload claiming admin) that is correctly rejected. Full suite: 19 tests green, `gofmt`/`vet`/build clean. | Batch 3: repos (users, user_roles, devices, refresh_tokens), refresh-token rotation with reuse detection, auth service | — |
 | Sprint 1 batch 3 | — | Repos (users, devices, refresh_tokens) with a `Querier` interface proven by the compiler to accept both pool and tx. Auth service: login, refresh with reuse detection, logout, session revocation. 13 integration tests against real PostgreSQL. **Two live bugs found and fixed** (see D26) — neither was visible without running the code. | Batch 4: HTTP handlers + auth/role middleware, then ECDSA device identity | — |
+| Sprint 1 batch 4 | — | HTTP layer complete: `httpx.Error` central error mapping, `RequireAuth`/`RequireRole`/`TrustProxy` middleware, auth handlers (login, refresh, logout, session, change-password), wired into `main.go`. **Verified live via curl**: login 200, wrong password 401, no-token 401, garbage token 401, refresh rotates, reuse kills the family. Added `domain.PublicError` so error messages are human-readable. `make test-api-db` runs all 31 tests against live Neon. | Batch 5: ECDSA device identity (keypair, registration, request signing) | — |
 
 ### Verified after the single-tenant refactor
 

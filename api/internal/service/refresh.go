@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,7 +51,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 		if errors.Is(err, domain.ErrNotFound) {
 			// Unknown token: nothing to revoke. Do not reveal whether it ever
 			// existed.
-			return nil, fmt.Errorf("%w: invalid refresh token", domain.ErrUnauthenticated)
+			return nil, domain.Public(domain.ErrUnauthenticated, "Your session has expired. Please sign in again.")
 		}
 		return nil, err
 	}
@@ -73,14 +72,14 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 			Str("ip", in.IP).
 			Int64("revoked", n).
 			Msg("REFRESH TOKEN REUSE DETECTED — family revoked")
-		return nil, fmt.Errorf("%w: refresh token has already been used; all sessions in this family have been revoked", domain.ErrUnauthenticated)
+		return nil, domain.Public(domain.ErrUnauthenticated, "Your session was ended for security reasons. Please sign in again.")
 	}
 
 	if rt.RevokedAt != nil {
-		return nil, fmt.Errorf("%w: refresh token has been revoked", domain.ErrUnauthenticated)
+		return nil, domain.Public(domain.ErrUnauthenticated, "Your session has ended. Please sign in again.")
 	}
 	if !now.Before(rt.ExpiresAt) {
-		return nil, fmt.Errorf("%w: refresh token has expired", domain.ErrUnauthenticated)
+		return nil, domain.Public(domain.ErrUnauthenticated, "Your session has expired. Please sign in again.")
 	}
 
 	// ── device state ─────────────────────────────────────────────
@@ -89,7 +88,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 	device, err := s.devices.FindByID(ctx, s.pool, rt.DeviceID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			return nil, fmt.Errorf("%w: device not registered", domain.ErrUnauthenticated)
+			return nil, domain.Public(domain.ErrUnauthenticated, "This device is not registered. Please sign in again.")
 		}
 		return nil, err
 	}
@@ -97,7 +96,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 		if _, err := s.tokens.RevokeFamily(ctx, s.pool, rt.FamilyID, domain.RevokeDeviceRevoked); err != nil {
 			log.Error().Err(err).Msg("failed to revoke family for revoked device")
 		}
-		return nil, fmt.Errorf("%w: this device has been revoked", domain.ErrForbidden)
+		return nil, domain.Public(domain.ErrForbidden, "This device has been revoked. Contact an administrator.")
 	}
 
 	// The client must present the same device id it logged in with. A token
@@ -108,7 +107,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 			Str("token_device", rt.DeviceID.String()).
 			Str("presented_device", in.DeviceID).
 			Msg("refresh presented from a different device")
-		return nil, fmt.Errorf("%w: refresh token belongs to a different device", domain.ErrForbidden)
+		return nil, domain.Public(domain.ErrForbidden, "This session belongs to a different device.")
 	}
 
 	// ── rotate ───────────────────────────────────────────────────
@@ -117,7 +116,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 		return nil, err
 	}
 	if !user.IsActive {
-		return nil, fmt.Errorf("%w: account is disabled", domain.ErrForbidden)
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled. Contact an administrator.")
 	}
 
 	// MarkUsed is the ATOMIC gate. If two requests race with the same token,
@@ -146,7 +145,7 @@ func (s *Auth) Refresh(ctx context.Context, in RefreshInput) (*Session, error) {
 		log.Warn().
 			Str("family_id", rt.FamilyID.String()).
 			Msg("REFRESH ROTATION RACE — treated as reuse, family revoked")
-		return nil, fmt.Errorf("%w: refresh token has already been used", domain.ErrUnauthenticated)
+		return nil, domain.Public(domain.ErrUnauthenticated, "Your session was ended for security reasons. Please sign in again.")
 	}
 
 	// Continue the SAME family, so a future reuse anywhere in the chain can

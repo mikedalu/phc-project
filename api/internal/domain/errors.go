@@ -138,3 +138,61 @@ func HasAnyRole(roles []Role, wanted ...Role) bool {
 	}
 	return false
 }
+
+// ────────────────────────────────────────────────────────────────────────
+//  PublicError: an error that carries a message safe to show a user.
+// ────────────────────────────────────────────────────────────────────────
+
+// PublicError is a domain error with a client-facing message.
+//
+// ═══ WHY THIS EXISTS ═══
+//
+// Wrapping with fmt.Errorf("%w: detail", ErrUnauthenticated) makes errors.Is work,
+// but it also prepends the sentinel's internal text to the message:
+//
+//	"unauthenticated: incorrect staff number or password"
+//
+// Shipping that to a client is sloppy — it exposes implementation vocabulary and
+// tells an attacker the internal taxonomy of failures. PublicError separates the
+// two: Unwrap() provides the sentinel for classification, Msg is what the user
+// reads.
+//
+// Usage:
+//
+//	return domain.Public(domain.ErrUnauthenticated, "Incorrect staff number or password.")
+type PublicError struct {
+	kind error  // sentinel for errors.Is
+	msg  string // safe to display
+}
+
+// Public builds a PublicError.
+func Public(kind error, msg string) *PublicError {
+	return &PublicError{kind: kind, msg: msg}
+}
+
+// Publicf builds a PublicError with a formatted message.
+func Publicf(kind error, format string, args ...any) *PublicError {
+	return &PublicError{kind: kind, msg: fmt.Sprintf(format, args...)}
+}
+
+// Error returns the public message, so a logged error still reads sensibly.
+func (e *PublicError) Error() string { return e.msg }
+
+// Unwrap exposes the sentinel so errors.Is(err, ErrUnauthenticated) works.
+func (e *PublicError) Unwrap() error { return e.kind }
+
+// Message returns the client-facing text.
+func (e *PublicError) Message() string { return e.msg }
+
+// ClientMessage returns the text safe to send to a user.
+//
+// If err is a PublicError, its message is returned. Otherwise a generic message
+// is chosen from the sentinel kind — never the raw wrapped error, which may
+// contain SQL, file paths or a DSN.
+func ClientMessage(err error, fallback string) string {
+	var pe *PublicError
+	if errors.As(err, &pe) {
+		return pe.Message()
+	}
+	return fallback
+}
