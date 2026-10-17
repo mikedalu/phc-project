@@ -324,6 +324,15 @@ export function apiPost<T>(
   return apiFetch<T>(path, { ...options, method: 'POST', body });
 }
 
+/** PATCH helper — partial updates, used by admin screens. */
+export function apiPatch<T>(
+  path: string,
+  body?: unknown,
+  options?: ApiFetchOptions,
+): Promise<ApiResult<T>> {
+  return apiFetch<T>(path, { ...options, method: 'PATCH', body });
+}
+
 /* ─── Response shapes for the endpoints that exist today ─────────────── */
 
 /** GET /meta — everything the client needs to configure itself at boot. */

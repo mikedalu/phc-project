@@ -304,6 +304,61 @@ overturned by accident.
 { "data": { "device": { "...": "..." }, "revokedSessions": 2 } }
 ```
 
+### `GET /admin/users` 🔐 `[AD]`
+
+Staff administration. **Online-only and not synced**: a role change made against a
+six-day-old offline copy of the staff list is a change made against stale information.
+
+```json
+{
+  "data": {
+    "users": [
+      {
+        "id": "018f0000-0000-7000-8000-0000000000b3",
+        "staffNumber": "DEMO/STF/0004",
+        "firstName": "Emeka",
+        "lastName": "Nwosu",
+        "email": "doctor@demo.phc",
+        "roles": ["doctor"],
+        "isActive": true,
+        "mustChangePassword": true,
+        "lastLoginAt": "2026-02-14T09:31:07Z",
+        "createdAt": "2026-02-01T08:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+Ordered by `staffNumber`, so the table does not reshuffle between refreshes. One page of up to
+100; staff lists do not need cursor pagination, and pretending they do adds a state machine
+nobody will exercise.
+
+### `PATCH /admin/users/:id` 🔐 `[AD]`
+
+```json
+{ "role": "doctor", "isActive": true, "reason": "covering the consulting room" }
+```
+
+| Field | Semantics |
+|---|---|
+| `role` | A **toggle**. Granted when the user does not hold it, revoked when they do. Sending the full role set instead would let a stale client silently remove a grant made seconds earlier. |
+| `isActive` | Opt in or out. Optional pointer in the API so `false` and "absent" differ. |
+| `reason` | Recorded on a revocation or a disable. Defaults to `administrator change`; minimum 5 characters, enforced by the DB CHECK as well. |
+
+Refusals, all server-side:
+
+| Situation | Status | `code` |
+|---|---|---|
+| No `role` and no `isActive` | 400 | `VALIDATION_FAILED` |
+| Unknown role name | 400 | `VALIDATION_FAILED` |
+| Actor changes their own role or disables themselves | 400 | `VALIDATION_FAILED` |
+| Disabling the last active administrator | 400 | `VALIDATION_FAILED` |
+| Actor is not an admin (checked against the database, not the token) | 403 | `FORBIDDEN` |
+
+Disabling an account also revokes **every** refresh-token family for it, in the same
+transaction. Otherwise a dismissed employee keeps working for up to thirty days.
+
 ---
 
 ## 4. Sync
@@ -998,14 +1053,12 @@ Lets the receiving facility close the loop, which sets `status = 'acknowledged'`
 
 | Method | Path | Roles | Notes |
 |---|---|---|---|
-| `GET` | `/admin/users` | AD | List staff |
-| `POST` | `/admin/users` | AD | Create staff account |
-| `PATCH` | `/admin/users/:id` | AD | Update details |
-| `POST` | `/admin/users/:id/roles` | AD | `{ role, action: "grant" \| "revoke" }` |
-| `POST` | `/admin/users/:id/reset-password` | AD | Generates a temporary password, sets `mustChangePassword` |
-| `POST` | `/admin/users/:id/deactivate` | AD | Revokes all sessions |
-| `GET` | `/admin/devices` | AD | With sync health from `device_sync_state` |
-| `POST` | `/admin/devices/:id/revoke` | AD | `{ reason }` — immediate |
+| `GET` | `/admin/users` | AD | ✅ Built — list staff with their roles |
+| `PATCH` | `/admin/users/:id` | AD | ✅ Built — `{ role, isActive, reason }`; `role` toggles |
+| `POST` | `/admin/users` | AD | ⬜ Not built — create a staff account |
+| `POST` | `/admin/users/:id/reset-password` | AD | ⬜ Not built — temporary password + `mustChangePassword` |
+| `GET` | `/admin/devices` | AD | ⬜ Not built — with sync health from `device_sync_state` |
+| `POST` | `/admin/devices/:id/revoke` | AD | ✅ Built — `{ reason }`, immediate |
 | `GET` | `/admin/audit-logs` | AD AC | `?entityTable=&entityId=&userId=&action=&from=&to=` |
 | `GET` | `/admin/sync-conflicts` | AD | Unreviewed conflicts |
 | `GET` | `/admin/sync-log` | AD | Recent batches from `sync_batches` |

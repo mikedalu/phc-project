@@ -1,10 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { router } from '@/router';
 import { openDatabase } from '@/db';
 import { hydrateSession, revalidateSession } from '@/features/auth/session';
+import { primeOfflinePolicy } from '@/features/auth/offline';
 import './app/main.css';
 
 /**
@@ -55,15 +57,31 @@ async function bootstrap(): Promise<void> {
   // reload — a flash that looks like a bug because it is one.
   await hydrateSession();
 
-  // Best-effort background revalidation: picks up a revoked role or device.
-  // Not awaited — the app must render whether or not the server answers.
+  // Best-effort background work. Not awaited: the app must render whether or not
+  // the server answers, and both of these are refreshes of cached knowledge.
+  //   - revalidateSession picks up a revoked role or device.
+  //   - primeOfflinePolicy caches OFFLINE_POLICY so the rule still works offline.
   if (navigator.onLine) {
     void revalidateSession();
   }
+  void primeOfflinePolicy();
+
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        // One retry, not three. A role change that failed because the server is
+        // down should say so, not spin for fifteen seconds.
+        retry: 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+  });
 
   createRoot(rootElement).render(
     <StrictMode>
-      <RouterProvider router={router} />
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
       {/* One toaster for the whole app, positioned away from the action bar so
           it never covers the primary button. */}
       <Toaster position="top-right" richColors closeButton />

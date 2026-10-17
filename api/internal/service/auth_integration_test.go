@@ -69,14 +69,21 @@ func newAuthFixture(t *testing.T, pool *pgxpool.Pool) (*service.Auth, uuid.UUID)
 	staffNo := "TEST/" + userID.String()[:8]
 
 	// Clean slate for this user id.
-	if _, err := pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
-		t.Fatalf("clear tokens: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `DELETE FROM user_roles WHERE user_id = $1`, userID); err != nil {
-		t.Fatalf("clear roles: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
-		t.Fatalf("clear user: %v", err)
+	//
+	// ORDER IS LOAD-BEARING. refresh_tokens.user_id and devices.registered_by
+	// both reference users(id), so deleting the user first fails with SQLSTATE
+	// 23503. The original cleanup ignored that error and quietly left a TEST/
+	// account behind on EVERY run — which is how the admin staff list grew six
+	// junk rows before anyone noticed.
+	for _, stmt := range []string{
+		`DELETE FROM refresh_tokens WHERE user_id = $1`,
+		`DELETE FROM devices WHERE registered_by = $1`,
+		`DELETE FROM user_roles WHERE user_id = $1`,
+		`DELETE FROM users WHERE id = $1`,
+	} {
+		if _, err := pool.Exec(ctx, stmt, userID); err != nil {
+			t.Fatalf("clear test user: %s: %v", stmt, err)
+		}
 	}
 
 	const insertUser = `
@@ -101,11 +108,21 @@ func newAuthFixture(t *testing.T, pool *pgxpool.Pool) (*service.Auth, uuid.UUID)
 
 	auth := service.NewAuth(pool, iss, 15*time.Minute, 30*24*time.Hour, 7*24*time.Hour)
 
-	// Make the account discoverable by staff number in Login's lookup.
+	// Remove every trace when the test ends — devices included, and in dependency
+	// order. Errors are LOGGED rather than swallowed: a cleanup that cannot fail
+	// visibly is a cleanup that stops working without telling anyone.
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM user_roles WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+		cleanupCtx := context.Background()
+		for _, stmt := range []string{
+			`DELETE FROM refresh_tokens WHERE user_id = $1`,
+			`DELETE FROM devices WHERE registered_by = $1`,
+			`DELETE FROM user_roles WHERE user_id = $1`,
+			`DELETE FROM users WHERE id = $1`,
+		} {
+			if _, err := pool.Exec(cleanupCtx, stmt, userID); err != nil {
+				t.Logf("test cleanup: %s: %v", stmt, err)
+			}
+		}
 	})
 
 	// Stash the staff number for the caller via the email-free lookup path.

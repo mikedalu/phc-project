@@ -2,6 +2,8 @@ import { createRouter } from '@tanstack/react-router';
 import { Route as rootRoute } from '@/routes/__root';
 import { Route as indexRoute } from '@/routes/index';
 import { Route as loginRoute } from '@/routes/login';
+import { Route as sessionExpiredRoute } from '@/routes/session-expired';
+import { Route as adminUsersRoute } from '@/routes/admin/users';
 import { Route as syncRoute } from '@/routes/sync';
 import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
 
@@ -14,10 +16,12 @@ import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
  */
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  sessionExpiredRoute,
   indexRoute,
   syncRoute,
   PatientsRoute,
   QueueRoute,
+  adminUsersRoute,
 ]);
 
 export const router = createRouter({

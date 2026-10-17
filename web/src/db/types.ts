@@ -151,7 +151,9 @@ export type SyncMetaKey =
   | 'lastPullAt'
   | 'lastError'
   | 'bootstrapped'
-  | 'offlineSince';
+  | 'offlineSince'
+  /** Cached copy of the server's OFFLINE_POLICY, so the rule works offline. */
+  | 'offlinePolicy';
 
 export interface SyncMeta {
   key: SyncMetaKey;

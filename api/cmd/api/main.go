@@ -94,7 +94,10 @@ func run() error {
 	deviceSvc := service.NewDevices(pool)
 	deviceHandler := handler.NewDevices(deviceSvc)
 
-	router := buildRouter(cfg, pool, authHandler, deviceHandler, issuer)
+	userSvc := service.NewUsers(pool)
+	userHandler := handler.NewUsers(userSvc)
+
+	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -154,7 +157,7 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, issuer *token.Issuer) *gin.Engine {
+func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, issuer *token.Issuer) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -252,6 +255,8 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 	admin.Use(middleware.RequireAuth(issuer), middleware.RequireRole(domain.RoleAdmin))
 	{
 		admin.POST("/devices/:id/revoke", deviceHandler.Revoke)
+		admin.GET("/users", userHandler.List)
+		admin.PATCH("/users/:id", userHandler.Update)
 	}
 
 	// /meta is what the client calls at boot: everything it needs to configure

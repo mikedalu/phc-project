@@ -78,6 +78,32 @@ Removing the tenant dimension also removed the schema's only genuinely **circula
 
 ---
 
+## Demo accounts
+
+All eight demo accounts share the password **`ChangeMe!2026`** and are seeded with
+`must_change_password = true`. Seeded by migration `00009_seed_demo_users.sql`, so a
+fresh install has one account per role without any manual SQL.
+
+| Staff number | Role | Why it exists |
+|---|---|---|
+| `DEMO/STF/0001` | `admin` | Staff administration; the only account that can see `/admin/users` |
+| `DEMO/STF/0002` | `front_desk` | Registration and the queue start point |
+| `DEMO/STF/0003` | `nurse` | Vitals and triage |
+| `DEMO/STF/0004` | `doctor` | Consultation, diagnosis, referral |
+| `DEMO/STF/0005` | `lab_scientist` | Lab worklist |
+| `DEMO/STF/0006` | `pharmacist` | Dispensing |
+| `DEMO/STF/0007` | `cashier` | Payments |
+| `DEMO/STF/0008` | `accountant` | Reports |
+
+**This is seed data, not a deployment.** A real installation must sign in as `DEMO/STF/0001`,
+change the password, and disable or delete the other seven. Migration `00009`'s `Down` step
+removes them all.
+
+Signing in as different roles is how the RBAC is demonstrated: the sidebar for a cashier shows
+no triage board, and `/admin/users` redirects away for everyone except an administrator.
+
+---
+
 ## Repository layout
 
 ```

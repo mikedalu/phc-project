@@ -227,3 +227,132 @@ func (r *Users) UpdatePasswordHash(ctx context.Context, q Querier, userID uuid.U
 	}
 	return nil
 }
+
+// List returns every visible user with their ACTIVE roles, ordered by staff
+// number so the admin table is stable between refreshes.
+//
+// One query, not one-plus-N. The roles are aggregated in the same statement
+// because an admin screen that fires a second query per row is fine at eight
+// users and miserable at two hundred on a metered link.
+func (r *Users) List(ctx context.Context, q Querier, limit, offset int) ([]*domain.User, error) {
+	const sql = `
+        SELECT` + userColumns + `,
+               COALESCE(
+                   array_agg(ur.role ORDER BY ur.granted_at)
+                       FILTER (WHERE ur.role IS NOT NULL),
+                   '{}'
+               ) AS roles
+          FROM users u
+          LEFT JOIN user_roles ur
+                 ON ur.user_id = u.id
+                AND ur.revoked_at IS NULL
+                AND ur.deleted_at IS NULL
+         WHERE u.deleted_at IS NULL
+         GROUP BY u.id
+         ORDER BY u.staff_number
+         LIMIT $1 OFFSET $2`
+
+	rows, err := q.Query(ctx, sql, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	// REQUIRED: without Close the connection never returns to the pool and the
+	// second page of this screen hangs forever.
+	defer rows.Close()
+
+	var out []*domain.User
+	for rows.Next() {
+		var (
+			u     domain.User
+			roles []string
+		)
+		if err := rows.Scan(
+			&u.ID, &u.StaffNumber, &u.FirstName, &u.LastName, &u.MiddleName,
+			&u.Email, &u.Phone, &u.IsActive, &u.MustChangePassword,
+			&u.LastLoginAt, &u.FailedLoginCount, &u.LockedUntil,
+			&u.CreatedAt, &u.UpdatedAt,
+			&roles,
+		); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		for _, role := range roles {
+			u.Roles = append(u.Roles, domain.Role(role))
+		}
+		out = append(out, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users: %w", err)
+	}
+	return out, nil
+}
+
+// SetActive enables or disables an account.
+//
+// Deactivating does NOT end existing sessions here; the service decides whether
+// to also revoke them, because "disable this account" and "log them out now"
+// are two decisions, not one.
+func (r *Users) SetActive(ctx context.Context, q Querier, userID uuid.UUID, active bool, actorID uuid.UUID) error {
+	const sql = `
+        UPDATE users
+           SET is_active = $2, updated_by = $3, updated_at = now()
+         WHERE id = $1 AND deleted_at IS NULL`
+
+	if _, err := q.Exec(ctx, sql, userID, active, actorID); err != nil {
+		return fmt.Errorf("set user active: %w", err)
+	}
+	return nil
+}
+
+// GrantRole adds an active role assignment.
+//
+// ON CONFLICT DO NOTHING covers the partial unique index: granting a role the
+// user already holds is a no-op rather than an error, because the caller's
+// intent ("this user should have this role") is already satisfied.
+func (r *Users) GrantRole(ctx context.Context, q Querier, userID uuid.UUID, role domain.Role, actorID uuid.UUID) error {
+	const sql = `
+        INSERT INTO user_roles (id, user_id, role, granted_by, created_by, updated_by)
+        VALUES ($1, $2, $3, $4, $4, $4)
+        ON CONFLICT DO NOTHING`
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("mint role id: %w", err)
+	}
+
+	if _, err := q.Exec(ctx, sql, id, userID, role.String(), actorID); err != nil {
+		return fmt.Errorf("grant role: %w", err)
+	}
+	return nil
+}
+
+// RevokeRole withdraws an active role assignment and records why.
+//
+// Returns false when the user did not hold the role, which is not an error: the
+// caller wanted the role gone, and it is gone.
+func (r *Users) RevokeRole(
+	ctx context.Context,
+	q Querier,
+	userID uuid.UUID,
+	role domain.Role,
+	actorID uuid.UUID,
+	reason string,
+	at time.Time,
+) (bool, error) {
+	const sql = `
+        UPDATE user_roles
+           SET revoked_at = $4,
+               revoked_by = $3,
+               revoked_reason = $5,
+               updated_by = $3,
+               updated_at = now()
+         WHERE user_id = $1
+           AND role = $2
+           AND revoked_at IS NULL
+           AND deleted_at IS NULL`
+
+	tag, err := q.Exec(ctx, sql, userID, role.String(), actorID, at, reason)
+	if err != nil {
+		return false, fmt.Errorf("revoke role: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
