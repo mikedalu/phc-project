@@ -4,6 +4,7 @@ import { Route as indexRoute } from '@/routes/index';
 import { Route as loginRoute } from '@/routes/login';
 import { Route as sessionExpiredRoute } from '@/routes/session-expired';
 import { Route as adminUsersRoute } from '@/routes/admin/users';
+import { Route as syncProbeRoute } from '@/routes/dev/sync';
 import { Route as syncRoute } from '@/routes/sync';
 import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
 
@@ -22,6 +23,7 @@ const routeTree = rootRoute.addChildren([
   PatientsRoute,
   QueueRoute,
   adminUsersRoute,
+  syncProbeRoute,
 ]);
 
 export const router = createRouter({

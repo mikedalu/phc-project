@@ -2,6 +2,7 @@ import {
   Activity,
   LayoutDashboard,
   Stethoscope,
+  FlaskConical,
   UserCog,
   Users,
   type LucideIcon,
@@ -45,6 +46,13 @@ export const ROLE_NAV: NavEntry[] = [
   },
   { to: '/sync', label: 'Sync status', icon: Activity, roles: ALL_ROLES },
   { to: '/admin/users', label: 'Staff accounts', icon: UserCog, roles: ['admin'] },
+  {
+    to: '/dev/sync',
+    label: 'Sync probe',
+    icon: FlaskConical,
+    roles: ['admin'],
+    plannedSprint: 'Sprint 2',
+  },
 ];
 
 /** The items the holder of `roles` may see, in table order. */

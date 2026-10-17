@@ -7,6 +7,7 @@ import { router } from '@/router';
 import { openDatabase } from '@/db';
 import { hydrateSession, revalidateSession } from '@/features/auth/session';
 import { primeOfflinePolicy } from '@/features/auth/offline';
+import { startSync } from '@/sync/engine';
 import './app/main.css';
 
 /**
@@ -65,6 +66,10 @@ async function bootstrap(): Promise<void> {
     void revalidateSession();
   }
   void primeOfflinePolicy();
+
+  // Starts the drain/pull loop: a 1 s initial catch-up, then online events,
+  // a 60 s poll, and a debounce after every local write.
+  startSync();
 
   const queryClient = new QueryClient({
     defaultOptions: {

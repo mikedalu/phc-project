@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db';
 
@@ -59,6 +59,40 @@ export interface SyncState {
   lastError: string | null;
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ *  Engine state — a tiny external store
+ *
+ *  The engine runs outside React (timers, listeners, background loops), so its
+ *  progress cannot live in component state. `useSyncExternalStore` is the
+ *  supported way to read a mutable value from an external source without
+ *  tearing, and it costs about fifteen lines.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+interface EngineState {
+  syncing: boolean;
+  lastError: string | null;
+  lastSyncAt: number | null;
+}
+
+let engineState: EngineState = { syncing: false, lastError: null, lastSyncAt: null };
+const engineListeners = new Set<() => void>();
+
+export function setEngineState(patch: Partial<EngineState>): void {
+  engineState = { ...engineState, ...patch };
+  for (const listener of engineListeners) listener();
+}
+
+function subscribeEngine(listener: () => void): () => void {
+  engineListeners.add(listener);
+  return () => {
+    engineListeners.delete(listener);
+  };
+}
+
+export function useEngineState(): EngineState {
+  return useSyncExternalStore(subscribeEngine, () => engineState, () => engineState);
+}
+
 /**
  * Live sync state, derived entirely from Dexie.
  *
@@ -84,25 +118,26 @@ export function useSyncState(): SyncState {
     0,
   );
 
-  const [status, setStatus] = useState<SyncStatus>('synced');
+  const engine = useEngineState();
 
-  useEffect(() => {
-    if (!online) {
-      setStatus('offline');
-      return;
-    }
-    if ((pendingCount ?? 0) > 0) {
-      setStatus('pending');
-      return;
-    }
-    setStatus('synced');
-  }, [online, pendingCount]);
+  let status: SyncStatus = 'synced';
+  if (!online) {
+    // Offline is NOT an error: the records are safe on this device. It must
+    // never be rendered in a danger colour.
+    status = 'offline';
+  } else if (engine.lastError) {
+    status = 'error';
+  } else if (engine.syncing) {
+    status = 'syncing';
+  } else if ((pendingCount ?? 0) > 0) {
+    status = 'pending';
+  }
 
   return {
     status,
     pendingCount: pendingCount ?? 0,
     conflictCount: conflictCount ?? 0,
-    lastError: null,
+    lastError: engine.lastError,
   };
 }
 

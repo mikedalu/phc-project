@@ -10,6 +10,7 @@ import type {
   PatientRow,
   SessionRow,
   SyncMeta,
+  SyncProbeRow,
   VitalsRow,
 } from './types';
 
@@ -51,6 +52,7 @@ export const db = new Dexie('phc_records') as Dexie & {
   deviceKeys: EntityTable<DeviceKeyRow, 'id'>;
   session: EntityTable<SessionRow, 'key'>;
   localCredentials: EntityTable<OfflineCredentialRow, 'id'>;
+  sync_probe: EntityTable<SyncProbeRow, 'id'>;
 };
 
 db.version(1).stores({
@@ -122,6 +124,17 @@ db.version(3).stores({
  */
 db.version(4).stores({
   localCredentials: 'id, userId',
+});
+
+/**
+ * v5 — the development probe table.
+ *
+ * A real synced table, wired exactly like the clinical tables will be: written
+ * through `localWrite`, drained by the pusher, applied by the puller. If the
+ * engine works here, it works for `patients`.
+ */
+db.version(5).stores({
+  sync_probe: 'id, updatedAt, serverRev, syncState',
 });
 
 /**

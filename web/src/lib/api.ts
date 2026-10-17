@@ -85,6 +85,25 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The path a signed request must use in its canonical string.
+ *
+ * The signature covers the PATH, not the origin, so an absolute production API
+ * URL has to be reduced to its pathname. Getting this wrong fails verification
+ * only in production, which is the worst place to discover it.
+ */
+export function apiPath(path: string): string {
+  if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
+    try {
+      const base = new URL(API_BASE).pathname.replace(/\/$/, '');
+      return `${base}${path}`;
+    } catch {
+      return path;
+    }
+  }
+  return `${API_BASE}${path}`;
+}
+
 /* ─── Auth bridge ────────────────────────────────────────────────────── */
 
 /**
@@ -141,6 +160,13 @@ export interface ApiResult<T> {
 
 export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
+  /**
+   * A body that is ALREADY serialised. Used by the sync push, where the exact
+   * bytes must be signed and then sent unchanged: passing an object would let
+   * this module serialise it a second time, and any difference in key order or
+   * spacing invalidates the signature.
+   */
+  rawBody?: string;
   /** Milliseconds. Sync pushes need a long timeout because of Cloud Run cold starts. */
   timeoutMs?: number;
   /** Value for the Idempotency-Key header, for money-affecting POSTs. */
@@ -161,6 +187,7 @@ async function send<T>(
 ): Promise<Outcome<T>> {
   const {
     body,
+    rawBody,
     timeoutMs = 30_000,
     idempotencyKey,
     headers,
@@ -182,7 +209,7 @@ async function send<T>(
   if (accessToken) {
     requestHeaders['Authorization'] = `Bearer ${accessToken}`;
   }
-  if (body !== undefined) {
+  if (body !== undefined || rawBody !== undefined) {
     requestHeaders['Content-Type'] = 'application/json';
   }
   if (idempotencyKey) {
@@ -195,7 +222,7 @@ async function send<T>(
       ...init,
       signal,
       headers: requestHeaders,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   } catch (cause) {
     // A network failure or timeout is NOT an ApiError from the server; it is

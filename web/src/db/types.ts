@@ -13,6 +13,13 @@ export interface BaseRow {
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Who created / last updated the row. Part of the nine sync columns, and set
+   * by `localWrite` from the session — a screen must never pass these itself.
+   * The server overrides `updated_by` with the authenticated user if they drift.
+   */
+  createdBy: string;
+  updatedBy: string;
 }
 
 /** Domain-specific columns are added per table; see the interfaces below. */
@@ -153,7 +160,9 @@ export type SyncMetaKey =
   | 'bootstrapped'
   | 'offlineSince'
   /** Cached copy of the server's OFFLINE_POLICY, so the rule works offline. */
-  | 'offlinePolicy';
+  | 'offlinePolicy'
+  /** Set when the server says our cursor is older than its retention window. */
+  | 'fullResyncRequired';
 
 export interface SyncMeta {
   key: SyncMetaKey;
@@ -178,6 +187,18 @@ export interface LocalConflict {
 export interface NumberCounter {
   key: string;
   lastValue: number;
+}
+
+/**
+ * The development probe row. Mirrors the server's `sync_probe` table.
+ *
+ * Not clinical. It exists so the sync engine can be driven end to end from two
+ * browsers before any clinical table exists — see docs/02-SYNC-PROTOCOL.md and
+ * the `/dev/sync` screen.
+ */
+export interface SyncProbeRow extends BaseRow {
+  title: string;
+  body: string | null;
 }
 
 /**
