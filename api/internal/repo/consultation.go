@@ -176,3 +176,73 @@ func (r *Consultation) MarkLabOrderCollected(ctx context.Context, q Querier, id,
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// InsertLabResult writes a measurement. No update method, by design.
+func (r *Consultation) InsertLabResult(ctx context.Context, q Querier, res *domain.LabResult) error {
+	const sql = `
+        INSERT INTO lab_results (
+            id, lab_order_id, patient_id, parameter_name, value_text, value_numeric,
+            unit, reference_range, abnormal_flag, result_at, result_by, remarks,
+            created_by, updated_by
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)`
+
+	if _, err := q.Exec(ctx, sql,
+		res.ID, res.LabOrderID, res.PatientID, res.ParameterName, res.ValueText, res.ValueNumeric,
+		res.Unit, res.ReferenceRange, res.AbnormalFlag, res.ResultAt, res.ResultBy, res.Remarks,
+		res.CreatedBy,
+	); err != nil {
+		return fmt.Errorf("insert lab result: %w", err)
+	}
+	return nil
+}
+
+// MarkLabOrderResulted flips the order to 'resulted' once its last result lands.
+func (r *Consultation) MarkLabOrderResulted(ctx context.Context, q Querier, orderID, actorID uuid.UUID) error {
+	const sql = `
+        UPDATE lab_orders
+           SET status = 'resulted', completed_at = now(),
+               updated_by = $2, updated_at = now(),
+               revision = revision + 1, server_rev = server_rev + 1
+         WHERE id = $1 AND status = 'collected' AND deleted_at IS NULL`
+
+	if _, err := q.Exec(ctx, sql, orderID, actorID); err != nil {
+		return fmt.Errorf("mark order resulted: %w", err)
+	}
+	return nil
+}
+
+// LabResultsForOrder lists the parameters recorded for an order.
+func (r *Consultation) LabResultsForOrder(ctx context.Context, q Querier, orderID uuid.UUID) ([]*domain.LabResult, error) {
+	const sql = `
+        SELECT id, lab_order_id, patient_id, parameter_name, value_text, value_numeric,
+               unit, reference_range, abnormal_flag, result_at, result_by,
+               verified_at, verified_by, remarks,
+               created_at, updated_at, created_by, updated_by
+          FROM lab_results
+         WHERE lab_order_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at`
+
+	rows, err := q.Query(ctx, sql, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("list lab results: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*domain.LabResult
+	for rows.Next() {
+		var r domain.LabResult
+		if err := rows.Scan(
+			&r.ID, &r.LabOrderID, &r.PatientID, &r.ParameterName, &r.ValueText, &r.ValueNumeric,
+			&r.Unit, &r.ReferenceRange, &r.AbnormalFlag, &r.ResultAt, &r.ResultBy,
+			&r.VerifiedAt, &r.VerifiedBy, &r.Remarks,
+			&r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.UpdatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("scan lab result: %w", err)
+		}
+		out = append(out, &r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lab results: %w", err)
+	}
+	return out, nil
+}

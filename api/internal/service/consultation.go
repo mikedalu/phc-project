@@ -304,3 +304,112 @@ func (s *Consultation) generateOrderNumber(ctx context.Context) (string, error) 
 	}
 	return fmt.Sprintf("%s/LAB/%d/%s", code, s.now().Year(), strings.ToUpper(hex.EncodeToString(buf))), nil
 }
+
+// RecordLabResultInput is one measured parameter.
+type RecordLabResultInput struct {
+	ActorID        uuid.UUID
+	OrderID        uuid.UUID
+	ParameterName  string
+	ValueText      string
+	ValueNumeric   *float64
+	Unit           string
+	ReferenceRange string
+	AbnormalFlag   string
+	Remarks        string
+}
+
+// RecordLabResult stores a measurement and, when the order is complete, closes it.
+//
+// ═══ WHY COLLECTED IS REQUIRED ═══
+//
+// A result against a specimen nobody collected is a data-entry fiction. The
+// order must be 'collected' first, which also means the lab worklist has a
+// queue to work through rather than a free-for-all.
+func (s *Consultation) RecordLabResult(ctx context.Context, in RecordLabResultInput) (*domain.LabResult, error) {
+	actor, err := s.users.FindByID(ctx, s.pool, in.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	if !actor.IsActive {
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled.")
+	}
+	if !domain.HasAnyRole(actor.Roles, domain.RoleLabScientist, domain.RoleAdmin) {
+		return nil, domain.Public(domain.ErrForbidden, "Only lab staff can record a result.")
+	}
+
+	order, err := s.repo.FindLabOrder(ctx, s.pool, in.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	// 'resulted' is accepted as well as 'collected': a test like a full blood
+	// count has several parameters, and refusing the second one because the
+	// first already closed the order would make multi-parameter tests
+	// impossible to record.
+	if order.Status != domain.LabCollected && order.Status != domain.LabResulted {
+		return nil, domain.Publicf(domain.ErrValidation,
+			"Results can only be recorded for a collected specimen; this order is %s.", order.Status)
+	}
+
+	name := strings.TrimSpace(in.ParameterName)
+	if name == "" {
+		return nil, domain.NewValidation("parameterName", "required")
+	}
+
+	valueText := strings.TrimSpace(in.ValueText)
+	if valueText == "" && in.ValueNumeric == nil {
+		// The database CHECK enforces this too; catching it here names the field.
+		return nil, domain.NewValidation("valueNumeric", "value_or_text_required")
+	}
+
+	flag := strings.TrimSpace(in.AbnormalFlag)
+	if flag != "" {
+		switch flag {
+		case "normal", "low", "high", "critical_low", "critical_high":
+		default:
+			return nil, domain.NewValidation("abnormalFlag", "unknown_value")
+		}
+	}
+
+	result := &domain.LabResult{
+		ID:             uuid.New(),
+		LabOrderID:     order.ID,
+		PatientID:      order.PatientID,
+		ParameterName:  name,
+		ValueText:      optionalString(&valueText, 200),
+		ValueNumeric:   in.ValueNumeric,
+		Unit:           optionalString(&in.Unit, 20),
+		ReferenceRange: optionalString(&in.ReferenceRange, 60),
+		AbnormalFlag:   optionalString(&flag, 20),
+		ResultAt:       s.now(),
+		ResultBy:       actor.ID,
+		Remarks:        optionalString(&in.Remarks, 500),
+		CreatedBy:      actor.ID,
+		UpdatedBy:      actor.ID,
+	}
+
+	if err := s.repo.InsertLabResult(ctx, s.pool, result); err != nil {
+		return nil, err
+	}
+
+	// The order is 'resulted' once at least one result exists. A test with two
+	// parameters will therefore close on the first one — acceptable for a first
+	// implementation, and the alternative (a tariff table of expected
+	// parameters) is Sprint 6 work.
+	if err := s.repo.MarkLabOrderResulted(ctx, s.pool, order.ID, actor.ID); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// LabResultsForOrder lists the parameters of an order.
+func (s *Consultation) LabResultsForOrder(ctx context.Context, actorID, orderID uuid.UUID) ([]*domain.LabResult, error) {
+	actor, err := s.users.FindByID(ctx, s.pool, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if !domain.HasAnyRole(actor.Roles, domain.RoleDoctor, domain.RoleNurse, domain.RoleLabScientist, domain.RoleAdmin) {
+		return nil, domain.Public(domain.ErrForbidden, "Your role cannot read lab results.")
+	}
+	return s.repo.LabResultsForOrder(ctx, s.pool, orderID)
+}

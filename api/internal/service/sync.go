@@ -84,6 +84,17 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 		},
 		// Vitals are APPEND-ONLY: an update is refused, a delete is allowed for
 		// one working day. See sync_appendonly.go.
+		"lab_results": &appendOnlyApplier{
+			insert: &lwwApplier{
+				table:   "lab_results",
+				columns: labResultColumnsForSync,
+				sync:    s.sync,
+				now:     s.now,
+			},
+			attributedTo: []string{"resultBy"},
+			sync:         s.sync,
+			now:          s.now,
+		},
 		"lab_orders": &lwwApplier{
 			table:      "lab_orders",
 			columns:    labOrderColumnsForSync,

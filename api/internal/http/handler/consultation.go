@@ -244,3 +244,96 @@ func (h *Consultation) CollectLabOrder(c *gin.Context) {
 
 	httpx.OK(c, toLabOrderDTO(order))
 }
+
+type labResultRequest struct {
+	ParameterName  string   `json:"parameterName"`
+	ValueText      string   `json:"valueText"`
+	ValueNumeric   *float64 `json:"valueNumeric"`
+	Unit           string   `json:"unit"`
+	ReferenceRange string   `json:"referenceRange"`
+	AbnormalFlag   string   `json:"abnormalFlag"`
+	Remarks        string   `json:"remarks"`
+}
+
+type labResultDTO struct {
+	ID             string   `json:"id"`
+	LabOrderID     string   `json:"labOrderId"`
+	PatientID      string   `json:"patientId"`
+	ParameterName  string   `json:"parameterName"`
+	ValueText      *string  `json:"valueText,omitempty"`
+	ValueNumeric   *float64 `json:"valueNumeric,omitempty"`
+	Unit           *string  `json:"unit,omitempty"`
+	ReferenceRange *string  `json:"referenceRange,omitempty"`
+	AbnormalFlag   *string  `json:"abnormalFlag,omitempty"`
+	ResultAt       string   `json:"resultAt"`
+	Remarks        *string  `json:"remarks,omitempty"`
+}
+
+func toLabResultDTO(r *domain.LabResult) labResultDTO {
+	return labResultDTO{
+		ID: r.ID.String(), LabOrderID: r.LabOrderID.String(), PatientID: r.PatientID.String(),
+		ParameterName: r.ParameterName, ValueText: r.ValueText, ValueNumeric: r.ValueNumeric,
+		Unit: r.Unit, ReferenceRange: r.ReferenceRange, AbnormalFlag: r.AbnormalFlag,
+		ResultAt: r.ResultAt.UTC().Format(time.RFC3339), Remarks: r.Remarks,
+	}
+}
+
+// RecordLabResult handles POST /api/v1/lab-orders/:id/results.
+func (h *Consultation) RecordLabResult(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "Order id must be a UUID.", nil)
+		return
+	}
+
+	var req labResultRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, "MALFORMED_REQUEST", "Request body must be valid JSON.", nil)
+		return
+	}
+
+	result, err := h.svc.RecordLabResult(c.Request.Context(), service.RecordLabResultInput{
+		ActorID: actor.UserID, OrderID: orderID, ParameterName: req.ParameterName,
+		ValueText: req.ValueText, ValueNumeric: req.ValueNumeric, Unit: req.Unit,
+		ReferenceRange: req.ReferenceRange, AbnormalFlag: req.AbnormalFlag, Remarks: req.Remarks,
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	c.JSON(201, gin.H{"data": gin.H{"labResult": toLabResultDTO(result)}})
+}
+
+// ListLabResults handles GET /api/v1/lab-orders/:id/results.
+func (h *Consultation) ListLabResults(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "Order id must be a UUID.", nil)
+		return
+	}
+
+	rows, err := h.svc.LabResultsForOrder(c.Request.Context(), actor.UserID, orderID)
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	out := make([]labResultDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toLabResultDTO(r))
+	}
+	httpx.OK(c, gin.H{"labResults": out, "count": len(out)})
+}

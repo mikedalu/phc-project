@@ -591,6 +591,21 @@ var vitalsColumnsForSync = []columnSpec{
 	{Field: "recordedBy", SQL: "recorded_by", Kind: kindUUID},
 }
 
+// labResultColumnsForSync: append-only measurements.
+var labResultColumnsForSync = []columnSpec{
+	{Field: "labOrderId", SQL: "lab_order_id", Kind: kindUUID, Required: true},
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "parameterName", SQL: "parameter_name", Kind: kindText, Required: true},
+	{Field: "valueText", SQL: "value_text", Kind: kindText},
+	{Field: "valueNumeric", SQL: "value_numeric", Kind: kindFloat},
+	{Field: "unit", SQL: "unit", Kind: kindText},
+	{Field: "referenceRange", SQL: "reference_range", Kind: kindText},
+	{Field: "abnormalFlag", SQL: "abnormal_flag", Kind: kindText},
+	{Field: "resultAt", SQL: "result_at", Kind: kindTimestamp},
+	{Field: "resultBy", SQL: "result_by", Kind: kindUUID},
+	{Field: "remarks", SQL: "remarks", Kind: kindText},
+}
+
 // labOrderColumnsForSync is LWW, because STATUS advances (ordered -> collected
 // -> resulted) and that is an edit to the row, not a new fact.
 var labOrderInsertOnly = []columnSpec{

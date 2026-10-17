@@ -368,10 +368,22 @@ func buildRouter(
 	labOrderActions := v1.Group("/lab-orders")
 	labOrderActions.Use(
 		middleware.RequireAuth(issuer),
-		middleware.RequireRole(domain.RoleLabScientist, domain.RoleNurse, domain.RoleAdmin),
+		// Doctors are included so they can READ results; the POST below re-checks
+		// with a stricter role list, so read access does not leak write access.
+		middleware.RequireRole(domain.RoleDoctor, domain.RoleLabScientist, domain.RoleNurse, domain.RoleAdmin),
 	)
 	{
-		labOrderActions.POST("/:id/collect", consultationHandler.CollectLabOrder)
+		labOrderActions.POST("/:id/collect",
+			middleware.RequireRole(domain.RoleLabScientist, domain.RoleNurse, domain.RoleAdmin),
+			consultationHandler.CollectLabOrder,
+		)
+		labOrderActions.GET("/:id/results", consultationHandler.ListLabResults)
+		// Results are written by lab staff only. The service re-checks, because
+		// with a replicated client the frontend is attacker-controlled.
+		labOrderActions.POST("/:id/results",
+			middleware.RequireRole(domain.RoleLabScientist, domain.RoleAdmin),
+			consultationHandler.RecordLabResult,
+		)
 	}
 
 	// ─── households ────────────────────────────────────────────────
