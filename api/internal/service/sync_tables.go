@@ -591,6 +591,18 @@ var vitalsColumnsForSync = []columnSpec{
 	{Field: "recordedBy", SQL: "recorded_by", Kind: kindUUID},
 }
 
+// diagnosisColumnsForSync: no update path, like every other clinical fact.
+var diagnosisColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID, Required: true},
+	{Field: "diagnosisType", SQL: "diagnosis_type", Kind: kindText},
+	{Field: "icd10Code", SQL: "icd10_code", Kind: kindText},
+	{Field: "description", SQL: "description", Kind: kindText, Required: true},
+	{Field: "clinicalNotes", SQL: "clinical_notes", Kind: kindText},
+	{Field: "diagnosedAt", SQL: "diagnosed_at", Kind: kindTimestamp},
+	{Field: "diagnosedBy", SQL: "diagnosed_by", Kind: kindUUID},
+}
+
 var householdColumnsForSync = []columnSpec{
 	{Field: "familyName", SQL: "family_name", Kind: kindText, Required: true},
 	{Field: "headPatientId", SQL: "head_patient_id", Kind: kindUUID},

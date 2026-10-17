@@ -27,8 +27,11 @@ type appendOnlyApplier struct {
 	// insert reuses the LWW applier's insert path, which already builds the
 	// column list, writes the change log and returns the assigned revision.
 	insert *lwwApplier
-	sync   *repo.Sync
-	now    func() time.Time
+	// attributedTo names the NOT NULL columns that record WHO made the fact.
+	// They are filled from the session, never trusted from the payload.
+	attributedTo []string
+	sync         *repo.Sync
+	now          func() time.Time
 }
 
 func (a *appendOnlyApplier) apply(ctx context.Context, tx pgx.Tx, in applyContext) (applyOutcome, error) {
@@ -54,11 +57,13 @@ func (a *appendOnlyApplier) applyInsert(ctx context.Context, tx pgx.Tx, in apply
 
 	// Attribution comes from the SESSION, never from the payload.
 	//
-	// `recorded_by` is NOT NULL, and a client has no business asserting who
-	// recorded an observation — that is precisely the field a tampered client
-	// would forge. When the payload omits it, the acting user fills it.
-	if _, present := in.op.Payload["recordedBy"]; !present {
-		in.op.Payload["recordedBy"] = in.userID.String()
+	// These columns are NOT NULL, and a client has no business asserting who
+	// recorded a fact — that is precisely the field a tampered client would
+	// forge. When the payload omits it, the acting user fills it.
+	for _, field := range a.attributedTo {
+		if _, present := in.op.Payload[field]; !present {
+			in.op.Payload[field] = in.userID.String()
+		}
 	}
 
 	// Collect only the columns the payload carries — see D51.

@@ -72,6 +72,10 @@ var tableColumns = map[string]string{
 		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
 		"created_by, updated_by",
 
+	"diagnoses": "id, patient_id, encounter_id, diagnosis_type, icd10_code, description, " +
+		"clinical_notes, diagnosed_at, diagnosed_by, revision, server_rev, sync_state, " +
+		"deleted_at, created_at, updated_at, created_by, updated_by",
+
 	"vitals": "id, patient_id, encounter_id, recorded_at, bp_systolic, bp_diastolic, " +
 		"temperature_c, pulse_rate, respiratory_rate, height_cm, weight_kg, spo2, bmi, " +
 		"pain_score, notes, recorded_by, revision, server_rev, sync_state, deleted_at, " +

@@ -67,6 +67,7 @@ func testRouter(t *testing.T) *gin.Engine {
 		handler.NewPatients(nil),
 		handler.NewHouseholds(nil),
 		handler.NewEncounters(nil),
+		handler.NewConsultation(nil),
 		issuer,
 	)
 }

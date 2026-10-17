@@ -112,8 +112,11 @@ func run() error {
 	encounterSvc := service.NewEncounters(pool)
 	encounterHandler := handler.NewEncounters(encounterSvc)
 
+	consultationSvc := service.NewConsultation(pool)
+	consultationHandler := handler.NewConsultation(consultationSvc)
+
 	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
-		patientHandler, householdHandler, encounterHandler, issuer)
+		patientHandler, householdHandler, encounterHandler, consultationHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -183,6 +186,7 @@ func buildRouter(
 	patientHandler *handler.Patients,
 	householdHandler *handler.Households,
 	encounterHandler *handler.Encounters,
+	consultationHandler *handler.Consultation,
 	issuer *token.Issuer,
 ) *gin.Engine {
 	router := gin.New()
@@ -330,6 +334,25 @@ func buildRouter(
 	{
 		patientVitals.POST("", encounterHandler.RecordVitals)
 		patientVitals.GET("", encounterHandler.ListVitals)
+	}
+
+	// ─── consultation ──────────────────────────────────────────────
+	consultations := v1.Group("/consultations")
+	consultations.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleDoctor, domain.RoleAdmin),
+	)
+	{
+		consultations.POST("/:encounterId/diagnoses", consultationHandler.CreateDiagnosis)
+	}
+
+	diagnosisReads := v1.Group("/patients/:id/diagnoses")
+	diagnosisReads.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleDoctor, domain.RoleNurse, domain.RoleAdmin),
+	)
+	{
+		diagnosisReads.GET("", consultationHandler.ListDiagnoses)
 	}
 
 	// ─── households ────────────────────────────────────────────────
