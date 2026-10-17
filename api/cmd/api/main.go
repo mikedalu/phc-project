@@ -344,6 +344,7 @@ func buildRouter(
 	)
 	{
 		consultations.POST("/:encounterId/diagnoses", consultationHandler.CreateDiagnosis)
+		consultations.POST("/:encounterId/lab-orders", consultationHandler.CreateLabOrder)
 	}
 
 	diagnosisReads := v1.Group("/patients/:id/diagnoses")
@@ -353,6 +354,24 @@ func buildRouter(
 	)
 	{
 		diagnosisReads.GET("", consultationHandler.ListDiagnoses)
+	}
+
+	labOrderReads := v1.Group("/patients/:id/lab-orders")
+	labOrderReads.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleDoctor, domain.RoleNurse, domain.RoleLabScientist, domain.RoleAdmin),
+	)
+	{
+		labOrderReads.GET("", consultationHandler.ListLabOrders)
+	}
+
+	labOrderActions := v1.Group("/lab-orders")
+	labOrderActions.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleLabScientist, domain.RoleNurse, domain.RoleAdmin),
+	)
+	{
+		labOrderActions.POST("/:id/collect", consultationHandler.CollectLabOrder)
 	}
 
 	// ─── households ────────────────────────────────────────────────

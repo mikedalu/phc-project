@@ -72,6 +72,11 @@ var tableColumns = map[string]string{
 		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
 		"created_by, updated_by",
 
+	"lab_orders": "id, patient_id, encounter_id, order_number, test_code, test_name, " +
+		"specimen_type, clinical_indication, priority, status, ordered_at, ordered_by, " +
+		"collected_at, collected_by, completed_at, revision, server_rev, sync_state, " +
+		"deleted_at, created_at, updated_at, created_by, updated_by",
+
 	"diagnoses": "id, patient_id, encounter_id, diagnosis_type, icd10_code, description, " +
 		"clinical_notes, diagnosed_at, diagnosed_by, revision, server_rev, sync_state, " +
 		"deleted_at, created_at, updated_at, created_by, updated_by",

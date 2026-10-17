@@ -591,6 +591,28 @@ var vitalsColumnsForSync = []columnSpec{
 	{Field: "recordedBy", SQL: "recorded_by", Kind: kindUUID},
 }
 
+// labOrderColumnsForSync is LWW, because STATUS advances (ordered -> collected
+// -> resulted) and that is an edit to the row, not a new fact.
+var labOrderInsertOnly = []columnSpec{
+	{Field: "orderNumber", SQL: "order_number", Kind: kindText, Required: true},
+}
+
+var labOrderColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID, Required: true},
+	{Field: "testCode", SQL: "test_code", Kind: kindText, Required: true},
+	{Field: "testName", SQL: "test_name", Kind: kindText, Required: true},
+	{Field: "specimenType", SQL: "specimen_type", Kind: kindText},
+	{Field: "clinicalIndication", SQL: "clinical_indication", Kind: kindText},
+	{Field: "priority", SQL: "priority", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "orderedAt", SQL: "ordered_at", Kind: kindTimestamp},
+	{Field: "orderedBy", SQL: "ordered_by", Kind: kindUUID},
+	{Field: "collectedAt", SQL: "collected_at", Kind: kindTimestamp},
+	{Field: "collectedBy", SQL: "collected_by", Kind: kindUUID},
+	{Field: "completedAt", SQL: "completed_at", Kind: kindTimestamp},
+}
+
 // diagnosisColumnsForSync: no update path, like every other clinical fact.
 var diagnosisColumnsForSync = []columnSpec{
 	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},

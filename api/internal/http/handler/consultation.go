@@ -115,3 +115,132 @@ func (h *Consultation) ListDiagnoses(c *gin.Context) {
 	}
 	httpx.OK(c, gin.H{"diagnoses": out, "count": len(out)})
 }
+
+type labOrderRequest struct {
+	PatientID   string `json:"patientId"`
+	TestCode    string `json:"testCode"`
+	TestName    string `json:"testName"`
+	Specimen    string `json:"specimenType"`
+	Indication  string `json:"clinicalIndication"`
+	Priority    string `json:"priority"`
+	OrderNumber string `json:"orderNumber"`
+}
+
+type labOrderDTO struct {
+	ID          string  `json:"id"`
+	PatientID   string  `json:"patientId"`
+	EncounterID string  `json:"encounterId"`
+	OrderNumber string  `json:"orderNumber"`
+	TestCode    string  `json:"testCode"`
+	TestName    string  `json:"testName"`
+	Specimen    *string `json:"specimenType,omitempty"`
+	Indication  *string `json:"clinicalIndication,omitempty"`
+	Priority    string  `json:"priority"`
+	Status      string  `json:"status"`
+	OrderedAt   string  `json:"orderedAt"`
+	CollectedAt *string `json:"collectedAt,omitempty"`
+}
+
+func toLabOrderDTO(o *domain.LabOrder) labOrderDTO {
+	var collected *string
+	if o.CollectedAt != nil {
+		v := o.CollectedAt.UTC().Format(time.RFC3339)
+		collected = &v
+	}
+	return labOrderDTO{
+		ID: o.ID.String(), PatientID: o.PatientID.String(), EncounterID: o.EncounterID.String(),
+		OrderNumber: o.OrderNumber, TestCode: o.TestCode, TestName: o.TestName,
+		Specimen: o.SpecimenType, Indication: o.ClinicalIndication,
+		Priority: o.Priority, Status: o.Status,
+		OrderedAt: o.OrderedAt.UTC().Format(time.RFC3339), CollectedAt: collected,
+	}
+}
+
+// CreateLabOrder handles POST /api/v1/consultations/:encounterId/lab-orders.
+func (h *Consultation) CreateLabOrder(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	encounterID, err := uuid.Parse(c.Param("encounterId"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "encounterId must be a UUID.", nil)
+		return
+	}
+
+	var req labOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, "MALFORMED_REQUEST", "Request body must be valid JSON.", nil)
+		return
+	}
+
+	patientID, err := uuid.Parse(req.PatientID)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "patientId must be a UUID.", nil)
+		return
+	}
+
+	order, err := h.svc.CreateLabOrder(c.Request.Context(), service.CreateLabOrderInput{
+		ActorID: actor.UserID, PatientID: patientID, EncounterID: encounterID,
+		TestCode: req.TestCode, TestName: req.TestName, Specimen: req.Specimen,
+		Indication: req.Indication, Priority: req.Priority, OrderNumber: req.OrderNumber,
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	c.JSON(201, gin.H{"data": gin.H{"labOrder": toLabOrderDTO(order)}})
+}
+
+// ListLabOrders handles GET /api/v1/patients/:id/lab-orders.
+func (h *Consultation) ListLabOrders(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	patientID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "Patient id must be a UUID.", nil)
+		return
+	}
+
+	rows, err := h.svc.LabOrdersForPatient(c.Request.Context(), actor.UserID, patientID)
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	out := make([]labOrderDTO, 0, len(rows))
+	for _, o := range rows {
+		out = append(out, toLabOrderDTO(o))
+	}
+	httpx.OK(c, gin.H{"labOrders": out, "count": len(out)})
+}
+
+// CollectLabOrder handles POST /api/v1/lab-orders/:id/collect.
+func (h *Consultation) CollectLabOrder(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "Order id must be a UUID.", nil)
+		return
+	}
+
+	order, err := h.svc.CollectLabOrder(c.Request.Context(), actor.UserID, id)
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	httpx.OK(c, toLabOrderDTO(order))
+}
