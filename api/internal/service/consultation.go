@@ -494,3 +494,266 @@ func (s *Consultation) LabResultsForOrder(ctx context.Context, actorID, orderID 
 	}
 	return s.repo.LabResultsForOrder(ctx, s.pool, orderID)
 }
+
+// PrescriptionItemInput is one drug line the doctor writes.
+type PrescriptionItemInput struct {
+	DrugName       string
+	Dose           string
+	Frequency      string
+	DurationDays   *int
+	Quantity       float64
+	Route          string
+	Instructions   string
+	UnitPriceMinor int64
+	TariffCode     string
+}
+
+// CreatePrescriptionInput is the whole request.
+type CreatePrescriptionInput struct {
+	ActorID            uuid.UUID
+	PatientID          uuid.UUID
+	EncounterID        uuid.UUID
+	PrescriptionType   string
+	PrescriptionNumber string
+	Notes              string
+	Items              []PrescriptionItemInput
+}
+
+// CreatePrescription writes the request, its lines and its bill in ONE
+// transaction, and moves the encounter to awaiting_drug_payment.
+func (s *Consultation) CreatePrescription(ctx context.Context, in CreatePrescriptionInput) (*domain.Prescription, []*domain.PrescriptionItem, error) {
+	actor, err := s.requireDoctor(ctx, in.ActorID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	patient, err := s.patients.FindPatientByID(ctx, s.pool, in.PatientID)
+	if err != nil {
+		return nil, nil, err
+	}
+	encounter, err := s.encounters.FindEncounterByID(ctx, s.pool, in.EncounterID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if encounter.PatientID != patient.ID {
+		return nil, nil, domain.NewValidation("encounterId", "does_not_belong_to_patient")
+	}
+	if encounter.Status != "active" {
+		return nil, nil, domain.Public(domain.ErrValidation, "This visit is closed.")
+	}
+	if len(in.Items) == 0 {
+		return nil, nil, domain.NewValidation("items", "at_least_one_required")
+	}
+
+	kind := strings.TrimSpace(in.PrescriptionType)
+	if kind == "" {
+		kind = "opd"
+	}
+	switch kind {
+	case "opd", "inpatient", "discharge", "refill":
+	default:
+		return nil, nil, domain.NewValidation("prescriptionType", "unknown_value")
+	}
+
+	number := strings.TrimSpace(in.PrescriptionNumber)
+	if number == "" {
+		number, err = s.generateOrderNumber(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		number = strings.Replace(number, "/LAB/", "/RX/", 1)
+	}
+
+	rx := &domain.Prescription{
+		ID:                 uuid.New(),
+		PrescriptionNumber: number,
+		PatientID:          patient.ID,
+		EncounterID:        encounter.ID,
+		PrescriptionType:   kind,
+		Status:             domain.PrescriptionPendingPayment,
+		PrescribedAt:       s.now(),
+		PrescribedBy:       actor.ID,
+		Notes:              optionalString(&in.Notes, 500),
+		CreatedBy:          actor.ID,
+		UpdatedBy:          actor.ID,
+	}
+
+	items := make([]*domain.PrescriptionItem, 0, len(in.Items))
+	var total int64
+
+	for _, line := range in.Items {
+		name := strings.TrimSpace(line.DrugName)
+		if name == "" {
+			return nil, nil, domain.NewValidation("drugName", "required")
+		}
+		if line.Quantity <= 0 {
+			return nil, nil, domain.NewValidation("quantity", "must_be_positive")
+		}
+
+		// A named tariff wins; otherwise the doctor's price stands, and zero is
+		// allowed so an unpriced drug does not block the prescription.
+		price := line.UnitPriceMinor
+		if strings.TrimSpace(line.TariffCode) != "" {
+			if t, err := repo.NewBilling().FindActiveTariff(ctx, s.pool, line.TariffCode); err == nil && t != nil {
+				price = t.UnitPriceMinor
+			}
+		}
+
+		amount := int64(roundTo2(float64(price) * line.Quantity))
+		total += amount
+
+		items = append(items, &domain.PrescriptionItem{
+			ID:                 uuid.New(),
+			PrescriptionID:     rx.ID,
+			DrugName:           name,
+			Dose:               strings.TrimSpace(line.Dose),
+			Frequency:          strings.TrimSpace(line.Frequency),
+			DurationDays:       int16FromPtr(line.DurationDays),
+			QuantityPrescribed: line.Quantity,
+			Route:              optionalString(&line.Route, 40),
+			Instructions:       optionalString(&line.Instructions, 300),
+			UnitPriceMinor:     price,
+			AmountMinor:        amount,
+			CreatedBy:          actor.ID,
+			UpdatedBy:          actor.ID,
+		})
+	}
+
+	billing := repo.NewBilling()
+
+	var invoice *domain.Invoice
+	if total > 0 {
+		invoiceNumber, err := s.generateOrderNumber(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		invoice = &domain.Invoice{
+			ID:            uuid.New(),
+			InvoiceNumber: strings.Replace(invoiceNumber, "/LAB/", "/INV/", 1),
+			PatientID:     patient.ID,
+			HouseholdID:   patient.HouseholdID,
+			EncounterID:   &encounter.ID,
+			InvoiceType:   "drug",
+			Status:        domain.InvoiceUnpaid,
+			TotalMinor:    total,
+			IssuedAt:      s.now(),
+			IssuedBy:      actor.ID,
+			CreatedBy:     actor.ID,
+			UpdatedBy:     actor.ID,
+		}
+		rx.InvoiceID = &invoice.ID
+	}
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// ORDER MATTERS: prescriptions.invoice_id is a real foreign key, checked
+		// immediately, so the invoice must exist before the prescription row that
+		// points at it. Inserting the prescription first failed with 23503.
+		if invoice != nil {
+			if err := billing.InsertInvoice(ctx, tx, invoice); err != nil {
+				return err
+			}
+			charge := &domain.Charge{
+				ID:             uuid.New(),
+				InvoiceID:      invoice.ID,
+				PatientID:      patient.ID,
+				HouseholdID:    patient.HouseholdID,
+				ChargeType:     "drug",
+				Description:    fmt.Sprintf("Prescription %s", rx.PrescriptionNumber),
+				ReferenceID:    &rx.ID,
+				ReferenceType:  strPtr("prescription"),
+				Quantity:       1,
+				UnitPriceMinor: total,
+				AmountMinor:    total,
+				Status:         "active",
+				PostedAt:       s.now(),
+				CreatedBy:      actor.ID,
+				UpdatedBy:      actor.ID,
+			}
+			if err := billing.InsertCharge(ctx, tx, charge); err != nil {
+				return err
+			}
+		}
+
+		if err := s.repo.InsertPrescription(ctx, tx, rx); err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := s.repo.InsertPrescriptionItem(ctx, tx, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	return rx, items, nil
+}
+
+// Dispense hands the drugs over, but only once they are PAID.
+func (s *Consultation) Dispense(ctx context.Context, actorID, prescriptionID uuid.UUID) (*domain.Prescription, error) {
+	actor, err := s.users.FindByID(ctx, s.pool, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if !actor.IsActive {
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled.")
+	}
+	if !domain.HasAnyRole(actor.Roles, domain.RolePharmacist, domain.RoleAdmin) {
+		return nil, domain.Public(domain.ErrForbidden, "Only a pharmacist can dispense.")
+	}
+
+	rx, err := s.repo.FindPrescription(ctx, s.pool, prescriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if rx.Status == domain.PrescriptionDispensed {
+		return nil, domain.Public(domain.ErrValidation, "This prescription has already been dispensed.")
+	}
+	// The guard that matters: an unpaid prescription is stock given away.
+	if rx.Status == domain.PrescriptionPendingPayment {
+		return nil, domain.Public(domain.ErrValidation,
+			"This prescription has not been paid for. Take payment at the cashier first.")
+	}
+	if rx.Status != domain.PrescriptionPaid {
+		return nil, domain.Publicf(domain.ErrValidation,
+			"This prescription is %s and cannot be dispensed.", rx.Status)
+	}
+
+	dispense := &domain.Dispense{
+		ID:             uuid.New(),
+		PrescriptionID: rx.ID,
+		PatientID:      rx.PatientID,
+		DispensedAt:    s.now(),
+		DispensedBy:    actor.ID,
+		CreatedBy:      actor.ID,
+		UpdatedBy:      actor.ID,
+	}
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.repo.InsertDispense(ctx, tx, dispense); err != nil {
+			return err
+		}
+		moved, err := s.repo.MarkPrescriptionDispensed(ctx, tx, rx.ID, actor.ID)
+		if err != nil {
+			return err
+		}
+		if !moved {
+			return domain.Public(domain.ErrStale, "Another station dispensed this prescription. Reload.")
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return s.repo.FindPrescription(ctx, s.pool, rx.ID)
+}
+
+func int16FromPtr(v *int) *int16 {
+	if v == nil {
+		return nil
+	}
+	n := int16(*v)
+	return &n
+}

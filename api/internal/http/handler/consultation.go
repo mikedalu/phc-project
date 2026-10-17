@@ -351,3 +351,103 @@ func (h *Consultation) ListLabResults(c *gin.Context) {
 	}
 	httpx.OK(c, gin.H{"labResults": out, "count": len(out)})
 }
+
+type prescriptionItemRequest struct {
+	DrugName       string  `json:"drugName"`
+	Dose           string  `json:"dose"`
+	Frequency      string  `json:"frequency"`
+	DurationDays   *int    `json:"durationDays"`
+	Quantity       float64 `json:"quantity"`
+	Route          string  `json:"route"`
+	Instructions   string  `json:"instructions"`
+	UnitPriceMinor int64   `json:"unitPriceMinor"`
+	TariffCode     string  `json:"tariffCode"`
+}
+
+type prescriptionRequest struct {
+	PatientID          string                    `json:"patientId"`
+	PrescriptionType   string                    `json:"prescriptionType"`
+	PrescriptionNumber string                    `json:"prescriptionNumber"`
+	Notes              string                    `json:"notes"`
+	Items              []prescriptionItemRequest `json:"items"`
+}
+
+// CreatePrescription handles POST /api/v1/consultations/:encounterId/prescriptions.
+func (h *Consultation) CreatePrescription(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	encounterID, err := uuid.Parse(c.Param("encounterId"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "encounterId must be a UUID.", nil)
+		return
+	}
+
+	var req prescriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.BadRequest(c, "MALFORMED_REQUEST", "Request body must be valid JSON.", nil)
+		return
+	}
+
+	patientID, err := uuid.Parse(req.PatientID)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "patientId must be a UUID.", nil)
+		return
+	}
+
+	items := make([]service.PrescriptionItemInput, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, service.PrescriptionItemInput{
+			DrugName: item.DrugName, Dose: item.Dose, Frequency: item.Frequency,
+			DurationDays: item.DurationDays, Quantity: item.Quantity,
+			Route: item.Route, Instructions: item.Instructions,
+			UnitPriceMinor: item.UnitPriceMinor, TariffCode: item.TariffCode,
+		})
+	}
+
+	rx, lines, err := h.svc.CreatePrescription(c.Request.Context(), service.CreatePrescriptionInput{
+		ActorID: actor.UserID, PatientID: patientID, EncounterID: encounterID,
+		PrescriptionType: req.PrescriptionType, PrescriptionNumber: req.PrescriptionNumber,
+		Notes: req.Notes, Items: items,
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	c.JSON(201, gin.H{"data": gin.H{
+		"prescription": gin.H{
+			"id": rx.ID.String(), "prescriptionNumber": rx.PrescriptionNumber,
+			"status": rx.Status, "invoiceId": uuidOrNil(rx.InvoiceID),
+			"items": len(lines),
+		},
+	}})
+}
+
+// Dispense handles POST /api/v1/prescriptions/:id/dispense.
+func (h *Consultation) Dispense(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "Prescription id must be a UUID.", nil)
+		return
+	}
+
+	rx, err := h.svc.Dispense(c.Request.Context(), actor.UserID, id)
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	httpx.OK(c, gin.H{
+		"id": rx.ID.String(), "prescriptionNumber": rx.PrescriptionNumber, "status": rx.Status,
+	})
+}

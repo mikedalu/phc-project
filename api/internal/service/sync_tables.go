@@ -732,6 +732,45 @@ var allocationColumnsForSync = []columnSpec{
 	{Field: "allocatedBy", SQL: "allocated_by", Kind: kindUUID},
 }
 
+// ─── prescriptions ─────────────────────────────────────────────────
+
+var prescriptionInsertOnly = []columnSpec{
+	{Field: "prescriptionNumber", SQL: "prescription_number", Kind: kindText, Required: true},
+}
+
+var prescriptionColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID, Required: true},
+	{Field: "prescriptionType", SQL: "prescription_type", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "prescribedAt", SQL: "prescribed_at", Kind: kindTimestamp},
+	{Field: "prescribedBy", SQL: "prescribed_by", Kind: kindUUID},
+	{Field: "invoiceId", SQL: "invoice_id", Kind: kindUUID},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+}
+
+var prescriptionItemColumnsForSync = []columnSpec{
+	{Field: "prescriptionId", SQL: "prescription_id", Kind: kindUUID, Required: true},
+	{Field: "drugName", SQL: "drug_name", Kind: kindText, Required: true},
+	{Field: "dose", SQL: "dose", Kind: kindText},
+	{Field: "frequency", SQL: "frequency", Kind: kindText},
+	{Field: "durationDays", SQL: "duration_days", Kind: kindInt},
+	{Field: "quantityPrescribed", SQL: "quantity_prescribed", Kind: kindFloat},
+	{Field: "route", SQL: "route", Kind: kindText},
+	{Field: "instructions", SQL: "instructions", Kind: kindText},
+	{Field: "chargeId", SQL: "charge_id", Kind: kindUUID},
+	{Field: "unitPriceMinor", SQL: "unit_price_minor", Kind: kindInt64},
+	{Field: "amountMinor", SQL: "amount_minor", Kind: kindInt64},
+}
+
+var dispenseColumnsForSync = []columnSpec{
+	{Field: "prescriptionId", SQL: "prescription_id", Kind: kindUUID, Required: true},
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "dispensedAt", SQL: "dispensed_at", Kind: kindTimestamp},
+	{Field: "dispensedBy", SQL: "dispensed_by", Kind: kindUUID},
+	{Field: "notes", SQL: "notes", Kind: kindText},
+}
+
 var householdColumnsForSync = []columnSpec{
 	{Field: "familyName", SQL: "family_name", Kind: kindText, Required: true},
 	{Field: "headPatientId", SQL: "head_patient_id", Kind: kindUUID},

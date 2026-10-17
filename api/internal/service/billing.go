@@ -321,6 +321,13 @@ func (s *Billing) RecordPayment(ctx context.Context, in RecordPaymentInput) (*do
 		status := domain.InvoicePartiallyPaid
 		if after.BalanceMinor <= 0 {
 			status = domain.InvoicePaid
+
+			// A settled invoice releases the prescriptions billed on it. Inside
+			// the same transaction, so money taken and stock released cannot
+			// disagree.
+			if err := repo.NewConsultation().MarkPrescriptionsPaidForInvoice(ctx, tx, invoice.ID, actor.ID); err != nil {
+				return err
+			}
 		}
 		return s.repo.SetInvoiceStatus(ctx, tx, invoice.ID, status, actor.ID)
 	}); err != nil {

@@ -102,6 +102,31 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 			sync:       s.sync,
 			now:        s.now,
 		},
+		"prescriptions": &lwwApplier{
+			table:      "prescriptions",
+			columns:    prescriptionColumnsForSync,
+			insertOnly: prescriptionInsertOnly,
+			sync:       s.sync,
+			now:        s.now,
+		},
+		"prescription_items": &lwwApplier{
+			table:   "prescription_items",
+			columns: prescriptionItemColumnsForSync,
+			sync:    s.sync,
+			now:     s.now,
+		},
+		"dispenses": &appendOnlyApplier{
+			insert: &lwwApplier{
+				table:   "dispenses",
+				columns: dispenseColumnsForSync,
+				sync:    s.sync,
+				now:     s.now,
+			},
+			attributedTo: []string{"dispensedBy"},
+			sync:         s.sync,
+			now:          s.now,
+		},
+
 		// ─── billing ───────────────────────────────────────────────
 		"tariffs": &lwwApplier{
 			table:   "tariffs",

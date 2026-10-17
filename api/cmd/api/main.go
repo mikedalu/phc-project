@@ -349,6 +349,7 @@ func buildRouter(
 	{
 		consultations.POST("/:encounterId/diagnoses", consultationHandler.CreateDiagnosis)
 		consultations.POST("/:encounterId/lab-orders", consultationHandler.CreateLabOrder)
+		consultations.POST("/:encounterId/prescriptions", consultationHandler.CreatePrescription)
 	}
 
 	diagnosisReads := v1.Group("/patients/:id/diagnoses")
@@ -388,6 +389,16 @@ func buildRouter(
 			middleware.RequireRole(domain.RoleLabScientist, domain.RoleAdmin),
 			consultationHandler.RecordLabResult,
 		)
+	}
+
+	// ─── pharmacy ──────────────────────────────────────────────────
+	pharmacy := v1.Group("/prescriptions")
+	pharmacy.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RolePharmacist, domain.RoleAdmin),
+	)
+	{
+		pharmacy.POST("/:id/dispense", consultationHandler.Dispense)
 	}
 
 	// ─── billing ───────────────────────────────────────────────────
