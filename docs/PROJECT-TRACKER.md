@@ -30,7 +30,7 @@ Update this table the moment a sprint closes. It is the first thing to show your
 | Sprint | Goal | Status | Started | Completed | Planned % | Actual % | Notes |
 |---|---|---|---|---|---|---|---|
 | 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
-| 1 | Auth, roles & device identity | 🟡 | | | 17 | 25% | Migrations 00005–00008 done; password package done + tested; JWT/service/handlers next |
+| 1 | Auth, roles & device identity | 🟡 | | | 17 | 35% | Schema + password + JWT + domain errors done and tested (19 tests). Service layer, handlers, middleware next |
 | 2 | Sync engine | ⬜ | | | | | |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
@@ -126,7 +126,7 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 1.3 | `00007_create_refresh_tokens.sql` | DB | ✅ | Server-only, no sync columns. Reuse-detection family index. Past expiry rejected |
 | 1.4 | `00008_seed_admin_role.sql` | DB | ✅ | **NOT in the original plan** — the seeded admin had no role and could log in but authorise nothing |
 | 1.5 | Argon2id hashing + verification helpers | BE | ✅ | **10 tests pass.** 78 ms hash / 73 ms verify at 64 MiB. Includes a 1 GiB ceiling against a DoS via tampered cost params |
-| 1.6 | JWT issue/verify (access + refresh) | BE | ⬜ |
+| 1.6 | JWT issue/verify (access **only** so far) | BE | 🟡 | **9 tests pass**, incl. a verified `alg=none` forgery rejection. Refresh-token issuance lands with the auth service |
 | 1.7 | `POST /auth/login` with dual rate limiting | BE | ⬜ |
 | 1.8 | `POST /auth/refresh` with reuse detection | BE | ⬜ |
 | 1.9 | `POST /auth/logout` | BE | ⬜ |
@@ -367,6 +367,7 @@ The habit that saves the project: two minutes at the end of every session.
 | Sprint 0 refactor | — | **Removed multi-tenancy.** Rewrote migrations 00001–00004 (nothing was applied), stripped `facility_id` from the sync contract and ~25 tables, removed the `facility_mismatch` push rejection and the facility pull filter, added `uq_facilities_single_org`, reordered the admin seed to 00004. Updated all 12 docs + `CLAUDE.md` + `README.md` (137 references). Re-verified: `up→down→up` clean, 4 constraint tests pass, API builds and serves. | Batch 2 (unchanged) | — |
 | Sprint 0 deploy | — | **API deployed to Cloud Run** (`europe-west1`), env vars via `--env-vars-file`. Added `scripts/deploy.sh` (9 guards) and `scripts/verify-deploy.sh` (5 checks incl. a 30-request concurrency test for the pooler trap). Debugged project-number-vs-project-ID across several rounds. | Verify deploy, then Cloudflare Pages (0.23), then the CORS loop-back (pass 2), then the end-to-end proof (0.24) | Cloudflare account for 0.23 |
 | Sprint 1 batch 1 | — | Migrations 00005–00008 (user_roles, devices, refresh_tokens, admin role seed) validated on a throwaway PG18 then applied to Neon → version 8. Wrote `internal/platform/password` with 10 tests; measured 78 ms hash / 73 ms verify at production cost. | Batch 2: JWT (access + refresh with reuse detection), auth service, login/refresh/logout handlers, RBAC middleware | — |
+| Sprint 1 batch 2 | — | `internal/domain`: sentinel errors + `ValidationError` + the eight roles with `HasRole`/`HasAnyRole`. `internal/platform/token`: HS256 access tokens, injectable clock, 9 tests incl. a **verified `alg=none` forgery** (empty signature, payload claiming admin) that is correctly rejected. Full suite: 19 tests green, `gofmt`/`vet`/build clean. | Batch 3: repos (users, user_roles, devices, refresh_tokens), refresh-token rotation with reuse detection, auth service | — |
 
 ### Verified after the single-tenant refactor
 
