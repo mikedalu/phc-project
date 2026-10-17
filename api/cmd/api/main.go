@@ -92,7 +92,12 @@ func run() error {
 	}
 
 	authSvc := service.NewAuth(pool, issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.OfflineGrace)
-	authHandler := handler.NewAuth(authSvc)
+	tokenRepo := repo.NewTokens()
+	authHandler := handler.NewAuth(authSvc, issuer, tokenRepo, pool, cfg.AccessTokenTTL)
+
+	// The denylist must be consulted on EVERY authenticated request, so the
+	// middleware holds it process-wide rather than receiving it route by route.
+	middleware.SetRevocationChecker(revocationChecker{pool: pool, repo: tokenRepo})
 
 	deviceSvc := service.NewDevices(pool)
 	deviceHandler := handler.NewDevices(deviceSvc)
@@ -609,4 +614,17 @@ func setupLogger(cfg *config.Config) {
 		Out:        os.Stdout,
 		TimeFormat: "15:04:05.000",
 	}).With().Timestamp().Logger()
+}
+
+// revocationChecker adapts the repository to the middleware's narrow interface.
+//
+// It exists so the middleware depends on one method rather than a pool, a repo
+// and a context: the smaller the surface, the fewer reasons to change it.
+type revocationChecker struct {
+	pool *pgxpool.Pool
+	repo *repo.Tokens
+}
+
+func (r revocationChecker) IsRevoked(ctx context.Context, jti uuid.UUID) (bool, error) {
+	return r.repo.IsRevoked(ctx, r.pool, jti)
 }

@@ -64,7 +64,7 @@ func testRouter(t *testing.T) *gin.Engine {
 	return buildRouter(
 		cfg,
 		nil,
-		handler.NewAuth(nil),
+		handler.NewAuth(nil, issuer, nil, nil, 15*time.Minute),
 		handler.NewDevices(nil),
 		handler.NewUsers(nil),
 		handler.NewSync(nil),

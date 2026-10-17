@@ -9,10 +9,15 @@
 package handler
 
 import (
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"net/http"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mikedalu/phc-records/api/internal/platform/token"
+	"github.com/mikedalu/phc-records/api/internal/repo"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,10 +31,24 @@ import (
 // Auth handles the authentication endpoints.
 type Auth struct {
 	svc *service.Auth
+
+	// Revocation dependencies. Logout needs to mint nothing but must be able to
+	// WRITE a denial, so it holds the issuer and the store directly.
+	issuer    TokenVerifier
+	tokens    *repo.Tokens
+	pool      *pgxpool.Pool
+	accessTTL time.Duration
+}
+
+// TokenVerifier is the slice of the issuer this handler needs.
+type TokenVerifier interface {
+	Verify(raw string) (*token.Verified, error)
 }
 
 // NewAuth builds the handler.
-func NewAuth(svc *service.Auth) *Auth { return &Auth{svc: svc} }
+func NewAuth(svc *service.Auth, issuer TokenVerifier, tokens *repo.Tokens, pool *pgxpool.Pool, accessTTL time.Duration) *Auth {
+	return &Auth{svc: svc, issuer: issuer, tokens: tokens, pool: pool, accessTTL: accessTTL}
+}
 
 // ─── DTOs ─────────────────────────────────────────────────────────────
 //
@@ -184,6 +203,35 @@ func (h *Auth) Logout(c *gin.Context) {
 	// session, and refusing because JSON was bad would leave the client unable
 	// to log out. The token is a nice-to-have, not a requirement.
 	_ = c.ShouldBindJSON(&req)
+
+	// Revoke the ACCESS token too, not just the refresh family.
+	//
+	// Without this, "sign out" leaves the token in the caller's hand valid for
+	// the rest of its lifetime — the window the denylist exists to close. A
+	// missing or unreadable token is tolerated: the refresh family is still
+	// killed, and refusing to log out because a header was malformed would trap
+	// the client in a session it cannot end.
+	if header := c.GetHeader("Authorization"); header != "" {
+		// Verify expects the TOKEN, not the header: passing "Bearer eyJ…" makes
+		// every verification fail, and the revocation then silently never
+		// happens while logout still returns 204.
+		raw := strings.TrimSpace(header)
+		if len(raw) > 7 && strings.EqualFold(raw[:7], "bearer ") {
+			raw = strings.TrimSpace(raw[7:])
+		}
+		if claims, err := h.issuer.Verify(raw); err == nil && claims.JTI != "" {
+			if jti, err := uuid.Parse(claims.JTI); err == nil {
+				expires := claims.ExpiresAt
+				if expires.IsZero() {
+					expires = time.Now().Add(h.accessTTL)
+				}
+				_ = h.tokens.Revoke(c.Request.Context(), h.pool, jti, expires, "logout")
+				// Opportunistic pruning: an entry is worthless once its token has
+				// expired, and logout is the only moment this table grows.
+				_, _ = h.tokens.Prune(c.Request.Context(), h.pool)
+			}
+		}
+	}
 
 	if err := h.svc.Logout(c.Request.Context(), req.RefreshToken); err != nil {
 		httpx.Error(c, err)

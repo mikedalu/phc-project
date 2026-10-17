@@ -139,6 +139,10 @@ type Verified struct {
 	DeviceID  string
 	SessionID string
 	JTI       string
+	// ExpiresAt is carried so a caller can record HOW LONG a revocation needs to
+	// live. Without it the denylist would have to guess, and a guess that is too
+	// short silently un-revokes a token.
+	ExpiresAt time.Time
 }
 
 // Verify validates a token and returns its claims.
@@ -207,5 +211,6 @@ func verifiedFrom(c *Claims) (*Verified, error) {
 		DeviceID:  c.DeviceID,
 		SessionID: c.SID,
 		JTI:       c.ID,
+		ExpiresAt: c.ExpiresAt.Time,
 	}, nil
 }

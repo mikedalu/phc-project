@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -40,6 +41,26 @@ type Actor struct {
 // are database facts that can change within the token's 15-minute life, so the
 // service layer re-checks them where they matter. A middleware check would
 // create the illusion of freshness without the guarantee.
+// RevocationChecker answers "has this token been signed out?".
+//
+// An interface rather than a concrete repo so the middleware stays testable and
+// so a deployment without a database (none today) can pass nil.
+type RevocationChecker interface {
+	IsRevoked(ctx context.Context, jti uuid.UUID) (bool, error)
+}
+
+// revocationChecker is the process-wide checker, set once at startup.
+//
+// It is package state rather than a parameter because RequireAuth is called in a
+// dozen route groups and threading a dependency through every one of them would
+// be churn for no benefit: there is exactly one auth database.
+var revocationChecker RevocationChecker
+
+// SetRevocationChecker installs the checker used by RequireAuth.
+func SetRevocationChecker(checker RevocationChecker) {
+	revocationChecker = checker
+}
+
 func RequireAuth(issuer *token.Issuer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -84,6 +105,34 @@ func RequireAuth(issuer *token.Issuer) gin.HandlerFunc {
 			// as invalid rather than guessing.
 			httpx.Unauthorized(c, "UNAUTHENTICATED", "Access token carries an invalid session.")
 			return
+		}
+
+		// A token revoked by logout must stop working NOW, not when it expires.
+		// This is the gap logout used to leave: the refresh family died but a
+		// token issued a minute earlier stayed valid for its full lifetime.
+		if revocationChecker != nil && verified.JTI != "" {
+			jti, err := uuid.Parse(verified.JTI)
+			if err != nil {
+				httpx.Unauthorized(c, "UNAUTHENTICATED", "Access token is invalid.")
+				return
+			}
+			revoked, err := revocationChecker.IsRevoked(c.Request.Context(), jti)
+			if err != nil {
+				// Fail CLOSED: if the denylist cannot be read, a token that might
+				// have been signed out must not be honoured.
+				// 503 rather than 500: the request was well formed and the
+				// session may be perfectly fine; the DENYLIST is what failed, and
+				// a retry is the right advice.
+				c.AbortWithStatusJSON(503, gin.H{"error": gin.H{
+					"code":    "SERVICE_UNAVAILABLE",
+					"message": "Could not verify the session. Try again.",
+				}})
+				return
+			}
+			if revoked {
+				httpx.Unauthorized(c, "UNAUTHENTICATED", "This session has been signed out.")
+				return
+			}
 		}
 
 		actor := Actor{
