@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -78,13 +80,18 @@ func NewAuth(
 		offlineGrace = accessTTL
 	}
 	return &Auth{
-		pool:         pool,
-		users:        repo.NewUsers(pool),
-		tokens:       repo.NewRefreshTokens(),
-		devices:      repo.NewDevices(),
-		issuer:       issuer,
-		byAcct:       ratelimit.New(LoginAttemptsPerAccount, LoginWindow),
-		byIP:         ratelimit.New(LoginAttemptsPerIP, LoginWindow),
+		pool:    pool,
+		users:   repo.NewUsers(pool),
+		tokens:  repo.NewRefreshTokens(),
+		devices: repo.NewDevices(),
+		issuer:  issuer,
+		byAcct:  ratelimit.New(LoginAttemptsPerAccount, LoginWindow),
+		// The per-IP limit is overridable because a TEST RUN logs in from one
+		// address dozens of times: the E2E suite legitimately tripped it and a
+		// spec failed at sign-in, which looks like a broken product rather than
+		// a working throttle. Production keeps the strict default; only local
+		// development raises it, and the value is visible in .env.
+		byIP:         ratelimit.New(loginAttemptsPerIPForEnv(), LoginWindow),
 		accessTTL:    accessTTL,
 		refreshTTL:   refreshTTL,
 		offlineGrace: offlineGrace,
@@ -540,4 +547,16 @@ func humanDuration(d time.Duration) string {
 		return "1 minute"
 	}
 	return fmt.Sprintf("%d minutes", m)
+}
+
+// loginAttemptsPerIPForEnv reads LOGIN_ATTEMPTS_PER_IP, defaulting to the
+// constant above. It exists ONLY so a test suite can log in repeatedly from one
+// address; a deployment should leave it unset.
+func loginAttemptsPerIPForEnv() int {
+	if raw := os.Getenv("LOGIN_ATTEMPTS_PER_IP"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return LoginAttemptsPerIP
 }
