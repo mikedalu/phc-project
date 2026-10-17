@@ -6,7 +6,7 @@ import { Route as sessionExpiredRoute } from '@/routes/session-expired';
 import { Route as adminUsersRoute } from '@/routes/admin/users';
 import { Route as syncProbeRoute } from '@/routes/dev/sync';
 import { Route as syncRoute } from '@/routes/sync';
-import { QueueRoute } from '@/routes/placeholders';
+import { Route as QueueRoute } from '@/routes/queue/index';
 import { Route as PatientListRoute } from '@/routes/patients/index';
 import { Route as PatientNewRoute } from '@/routes/patients/new';
 import { Route as PatientProfileRoute } from '@/routes/patients/$id';

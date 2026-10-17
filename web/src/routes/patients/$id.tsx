@@ -1,8 +1,12 @@
-import { createRoute, Link } from '@tanstack/react-router';
+import { useState } from 'react';
+import { createRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft } from 'lucide-react';
 import { Route as rootRoute } from '@/routes/__root';
 import { db } from '@/db';
+import { Button } from '@/components/ui/button';
+import { startVisit } from '@/features/queue/write';
+import { toast } from 'sonner';
 
 /**
  * Patient profile.
@@ -18,6 +22,24 @@ export const Route = createRoute({
 
 function PatientProfilePage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
+  const [starting, setStarting] = useState(false);
+
+  const onStartVisit = async () => {
+    if (!patient) return;
+    setStarting(true);
+    try {
+      await startVisit({
+        patientId: patient.id,
+        householdId: patient.householdId,
+        priority: 0,
+      });
+      await navigate({ to: '/queue' });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start the visit.');
+      setStarting(false);
+    }
+  };
 
   const patient = useLiveQuery(() => db.patients.get(id), [id]);
 
@@ -67,6 +89,10 @@ function PatientProfilePage() {
           </h1>
           <p className="mt-1 font-mono text-sm text-text-muted">{patient.patientNumber}</p>
         </div>
+        <div className="flex items-center gap-2">
+        <Button onClick={() => void onStartVisit()} disabled={starting}>
+          Start visit
+        </Button>
         <span
           className={
             patient.syncState === 'synced'
@@ -76,6 +102,7 @@ function PatientProfilePage() {
         >
           {patient.syncState === 'synced' ? 'Synced to server' : 'Saved on this device'}
         </span>
+        </div>
       </header>
 
       <section className="overflow-hidden rounded-md border border-border bg-surface">

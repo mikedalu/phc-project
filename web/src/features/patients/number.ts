@@ -21,12 +21,17 @@ export async function nextPatientNumber(): Promise<string> {
   return nextNumber('PAT');
 }
 
+/** Visit numbers share the scheme; a visit is numbered per year too. */
+export async function nextVisitNumber(): Promise<string> {
+  return nextNumber('VIS');
+}
+
 /** Family numbers share the scheme, with a different type segment. */
 export async function nextFamilyNumber(): Promise<string> {
   return nextNumber('FAM');
 }
 
-async function nextNumber(type: 'PAT' | 'FAM'): Promise<string> {
+async function nextNumber(type: 'PAT' | 'FAM' | 'VIS'): Promise<string> {
   const year = new Date().getFullYear();
 
   const [codeEntry, deviceId] = await Promise.all([

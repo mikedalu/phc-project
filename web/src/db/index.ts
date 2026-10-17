@@ -144,6 +144,17 @@ db.version(5).stores({
  * and pretending otherwise creates ordering constraints during bootstrap that
  * the server already enforces. Indexes only.
  */
+/**
+ * v7 — the clinical workflow.
+ *
+ * The queue is NOT a separate store: an encounter IS the queue entry, exactly as
+ * on the server. Two rows for one visit would be two things to keep in step.
+ */
+db.version(7).stores({
+  encounters: 'id, patientId, workflowStage, status, priority, queuedAt, updatedAt, serverRev, syncState',
+  vitals: 'id, patientId, encounterId, recordedAt, updatedAt, serverRev, syncState',
+});
+
 db.version(6).stores({
   patients: [
     'id',
