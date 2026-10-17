@@ -30,7 +30,7 @@ Update this table the moment a sprint closes. It is the first thing to show your
 | Sprint | Goal | Status | Started | Completed | Planned % | Actual % | Notes |
 |---|---|---|---|---|---|---|---|
 | 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
-| 1 | Auth, roles & device identity | 🟡 | | | 17 | 35% | Schema + password + JWT + domain errors done and tested (19 tests). Service layer, handlers, middleware next |
+| 1 | Auth, roles & device identity | 🟡 | | | 17 | 60% | Schema, password, JWT, domain, repos and the full auth service done. **31 tests.** Handlers + middleware + device keys next |
 | 2 | Sync engine | ⬜ | | | | | |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
@@ -126,18 +126,18 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 1.3 | `00007_create_refresh_tokens.sql` | DB | ✅ | Server-only, no sync columns. Reuse-detection family index. Past expiry rejected |
 | 1.4 | `00008_seed_admin_role.sql` | DB | ✅ | **NOT in the original plan** — the seeded admin had no role and could log in but authorise nothing |
 | 1.5 | Argon2id hashing + verification helpers | BE | ✅ | **10 tests pass.** 78 ms hash / 73 ms verify at 64 MiB. Includes a 1 GiB ceiling against a DoS via tampered cost params |
-| 1.6 | JWT issue/verify (access **only** so far) | BE | 🟡 | **9 tests pass**, incl. a verified `alg=none` forgery rejection. Refresh-token issuance lands with the auth service |
-| 1.7 | `POST /auth/login` with dual rate limiting | BE | ⬜ |
-| 1.8 | `POST /auth/refresh` with reuse detection | BE | ⬜ |
-| 1.9 | `POST /auth/logout` | BE | ⬜ |
+| 1.6 | JWT issue/verify (access) | BE | ✅ | **9 tests**, incl. a verified `alg=none` forgery (empty signature, payload claiming admin) |
+| 1.7 | Login service with dual rate limiting | BE | ✅ | Service done and tested (lockout, dummy-hash timing, no enumeration). **HTTP handler still to write** |
+| 1.8 | Refresh rotation with reuse detection | BE | ✅ | **Service done, tested against real Postgres.** Reuse revokes the whole family, verified end to end |
+| 1.9 | Logout service | BE | ✅ | Idempotent by design — a retried logout after a lost response must not error |
 | 1.10 | `GET /auth/session` | BE | ⬜ |
-| 1.11 | Auth middleware + role middleware | BE | ⬜ |
+| 1.11 | Auth middleware + role middleware | BE | ⬜ | Batch 4 |
 | 1.12 | ECDSA P-256 device keypair + registration | FE | ⬜ |
 | 1.13 | Login screen | FE | ⬜ |
 | 1.14 | Session store (Zustand) + token refresh interceptor | FE | ⬜ |
 | 1.15 | Role-based nav + route guards | FE | ⬜ |
 | 1.16 | Configurable offline grace window + `OFFLINE_POLICY` logic | FE | ⬜ |
-| 1.17 | Tests: login, refresh reuse, RBAC | TEST | ⬜ |
+| 1.17 | Tests: login, refresh reuse, RBAC | TEST | 🟡 | 13 integration tests + 9 token + 9 password = **31**. RBAC tests come with the middleware |
 
 ### Sprint 2 — Sync engine
 
@@ -346,6 +346,8 @@ Record every decision that would be expensive to reverse. This is also the raw m
 | D23 | | `PROJECT_ID` must be the string **project ID**, never the project number | Rely on `gcloud config` | Cloud Run's `--project` rejects a number: *"The value of --project flag was set to Project number."* Two things that look like they should convert it, and do not: `gcloud config set project <number>` succeeds but stores the number **verbatim** (verified), and `gcloud projects describe <number>` needs an active account plus `resourcemanager.projects.get`. The reliable lookup is `gcloud projects list --filter="projectNumber=N" --format="value(projectId)"`. `scripts/deploy.sh` now rejects a numeric ID before any API call and prints that command | 0 |
 | D24 | | `user_roles.revoked_reason` added (not in the original schema) | `revoked_at` alone | Found while testing: revoking a role recorded *who* and *when* but not *why*. "Why did Dr X lose prescribing rights?" is a question that will be asked, so the column is now required alongside `revoked_at`, with a CHECK enforcing both or neither | 1 |
 | D25 | | `devices.registered_by` is **nullable** | `user_id NOT NULL` | A PHC workstation is shared — front desk, cashier and triage nurse may all use one machine — so a device does not belong to one user. This also broke a circular FK (`devices.user_id -> users`, `refresh_tokens.device_id -> devices`). The session owner is recorded per refresh token instead | 1 |
+| D26 | | Identifier is **trimmed, never lowercased**, and the email comparison uses an explicit `$1::citext` cast | One normalised comparison for both columns | Two separate bugs, both caught by integration tests. (a) Lowercasing broke every staff number, because `staff_number` is case-sensitive TEXT — the seeded admin could not log in at all. (b) A Go `string` parameter is sent as `text`, and `citext = text` falls back to the case-SENSITIVE `text = text` operator, so mixed-case emails failed. The second is nasty because the same query in `psql` with a literal works (a literal is typed `citext`). Casting `$1` rather than the column keeps the index usable | 1 |
+| D27 | | In-memory, **per-instance** login rate limiter, with DB-backed account lockout as the real control | Redis-backed shared limiter | The limiter is a speed bump: with `--max-instances=5` an attacker gets 5× the allowance. The account lockout is database-backed and therefore consistent, which is why it carries the real weight. A shared store is recorded as future work rather than pretended away | 1 |
 
 ---
 
@@ -368,6 +370,7 @@ The habit that saves the project: two minutes at the end of every session.
 | Sprint 0 deploy | — | **API deployed to Cloud Run** (`europe-west1`), env vars via `--env-vars-file`. Added `scripts/deploy.sh` (9 guards) and `scripts/verify-deploy.sh` (5 checks incl. a 30-request concurrency test for the pooler trap). Debugged project-number-vs-project-ID across several rounds. | Verify deploy, then Cloudflare Pages (0.23), then the CORS loop-back (pass 2), then the end-to-end proof (0.24) | Cloudflare account for 0.23 |
 | Sprint 1 batch 1 | — | Migrations 00005–00008 (user_roles, devices, refresh_tokens, admin role seed) validated on a throwaway PG18 then applied to Neon → version 8. Wrote `internal/platform/password` with 10 tests; measured 78 ms hash / 73 ms verify at production cost. | Batch 2: JWT (access + refresh with reuse detection), auth service, login/refresh/logout handlers, RBAC middleware | — |
 | Sprint 1 batch 2 | — | `internal/domain`: sentinel errors + `ValidationError` + the eight roles with `HasRole`/`HasAnyRole`. `internal/platform/token`: HS256 access tokens, injectable clock, 9 tests incl. a **verified `alg=none` forgery** (empty signature, payload claiming admin) that is correctly rejected. Full suite: 19 tests green, `gofmt`/`vet`/build clean. | Batch 3: repos (users, user_roles, devices, refresh_tokens), refresh-token rotation with reuse detection, auth service | — |
+| Sprint 1 batch 3 | — | Repos (users, devices, refresh_tokens) with a `Querier` interface proven by the compiler to accept both pool and tx. Auth service: login, refresh with reuse detection, logout, session revocation. 13 integration tests against real PostgreSQL. **Two live bugs found and fixed** (see D26) — neither was visible without running the code. | Batch 4: HTTP handlers + auth/role middleware, then ECDSA device identity | — |
 
 ### Verified after the single-tenant refactor
 
