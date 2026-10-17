@@ -1884,7 +1884,7 @@ A third was found by *trying to break the login*:
 | **A revoked device bricks its own browser profile** | Low | There is no recovery path in the UI; the user must clear site data. Should be a screen, not a support call |
 | **PIN on referral read is not implemented** | Low | `REFERRAL_PIN_REQUIRED` exists and is unused. The QR is the credential today |
 | **Single-tenant, single facility** | By design | There is no tenant column anywhere; the deployment *is* the facility |
-| **No audit-log viewer** | Medium | `audit_logs` style endpoints were not built; `sync_change_log` and `sync_conflicts` record what happened but have no UI. For a real deployment this is the first report to build |
+| ~~No audit-log viewer~~ — **CLOSED** | — | Built after this audit: `GET /admin/activity` and the `/admin/activity` screen read `sync_change_log` (every write, appended by trigger) with the actor, plus recorded conflicts (D65). Kept in the table, struck through, so the audit shows its own follow-through |
 | **No automated security regression tests** | Medium | The controls above are verified by the route-matrix test and by the E2E suite, but there is no dedicated security test pack (no fuzzing, no auth-bypass property tests) |
 
 ### 14.4 The sentence to say out loud in the viva
