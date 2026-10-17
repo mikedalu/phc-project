@@ -195,7 +195,12 @@ func (s *Sync) Pull(ctx context.Context, in PullInput) (*domain.PullResult, erro
 	if err != nil {
 		return nil, err
 	}
-	if in.Since > 0 && oldest > 0 && in.Since < oldest-1 {
+	// `oldest == 0` means the log is EMPTY. For a device holding a cursor that is
+	// not the same as "nothing new": sequence numbers only ever increase, so a
+	// non-zero cursor against an empty log can only mean the rows it would have
+	// read were pruned. Reporting "up to date" there would leave the device
+	// permanently missing data and looking healthy.
+	if in.Since > 0 && (oldest == 0 || in.Since < oldest-1) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}

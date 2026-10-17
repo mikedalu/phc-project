@@ -462,3 +462,49 @@ func scanJSONObjects(rows pgx.Rows) ([]map[string]any, error) {
 	}
 	return out, nil
 }
+
+// PruneChangeLog deletes change-log rows older than each table's retention.
+//
+// ═══ WHY PER-TABLE ═══
+//
+// `retention_days` lives on the scope, so a clinical table can be kept for a
+// year while a volatile one (a probe, a device's own noise) is kept for a week.
+// A single global window would force the shortest value on everything, or the
+// longest on everything — both wrong.
+//
+// Pruning is only SAFE because the pull refuses a cursor older than the oldest
+// surviving row and tells the client to re-bootstrap. Deleting below that point
+// without that guard would leave devices permanently missing data and looking
+// healthy.
+func (r *Sync) PruneChangeLog(ctx context.Context, q Querier) (map[string]int64, error) {
+	const sql = `
+        WITH deleted AS (
+            DELETE FROM sync_change_log c
+             USING sync_table_scopes s
+             WHERE s.table_name = c.table_name
+               AND s.retention_days IS NOT NULL
+               AND c.changed_at < now() - make_interval(days => s.retention_days)
+            RETURNING c.table_name
+        )
+        SELECT table_name, count(*) FROM deleted GROUP BY table_name`
+
+	rows, err := q.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("prune change log: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]int64{}
+	for rows.Next() {
+		var table string
+		var count int64
+		if err := rows.Scan(&table, &count); err != nil {
+			return nil, fmt.Errorf("scan prune result: %w", err)
+		}
+		out[table] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate prune result: %w", err)
+	}
+	return out, nil
+}

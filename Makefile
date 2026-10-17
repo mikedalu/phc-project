@@ -48,6 +48,9 @@ help: ## Show this help
 migrate-up: ## Apply all pending migrations (uses the DIRECT Neon URL)
 	$(call goose,up)
 
+prune: ## Trim the replication change log to each table's retention
+	cd api && go run ./cmd/prune
+
 .PHONY: migrate-down
 migrate-down: ## Roll back exactly one migration
 	$(call goose,down)
