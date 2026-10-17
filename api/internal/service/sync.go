@@ -58,6 +58,23 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 
 	s.appliers = map[string]syncApplier{
 		"sync_probe": &probeApplier{sync: s.sync, now: s.now},
+		// Clinical tables use the column-map applier: one implementation, one
+		// place to state the columns, identical LWW semantics everywhere.
+		"patients": &lwwApplier{
+			table:      "patients",
+			columns:    patientColumnsForSync,
+			insertOnly: patientInsertOnly,
+			normalize:  normalizePatientPayload,
+			sync:       s.sync,
+			now:        s.now,
+		},
+		"households": &lwwApplier{
+			table:      "households",
+			columns:    householdColumnsForSync,
+			insertOnly: householdInsertOnly,
+			sync:       s.sync,
+			now:        s.now,
+		},
 	}
 
 	return s
