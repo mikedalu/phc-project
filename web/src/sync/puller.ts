@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import type { SyncProbeRow } from '@/db/types';
+import type { HouseholdRow, PatientRow, SyncProbeRow } from '@/db/types';
 import { apiGet } from '@/lib/api';
 
 /**
@@ -54,13 +54,18 @@ export async function pullOnce(): Promise<PullOutcome> {
 
   let applied = 0;
 
-  await db.transaction('rw', db.sync_probe, db.syncMeta, async () => {
+  // EVERY synced table must be in the transaction scope, and every table needs
+  // an adapter. Hard-coding the probe here is how a patient could be pushed,
+  // acknowledged by the server, and then never appear on the second device —
+  // the pull simply skipped it.
+  await db.transaction('rw', [db.sync_probe, db.patients, db.households, db.syncMeta], async () => {
     for (const [table, rows] of Object.entries(data.rows)) {
-      if (table !== 'sync_probe') continue;
+      const adapter = ADAPTERS[table];
+      if (!adapter) continue;
 
       for (const raw of rows) {
-        const incoming = toProbeRow(raw);
-        const local = await db.sync_probe.get(incoming.id);
+        const incoming = adapter.adapt(raw);
+        const local = await adapter.table.get(incoming.id);
 
         // A row with local edits queued must not be clobbered by an older
         // server copy: our push will resolve it through LWW and come back with
@@ -71,7 +76,7 @@ export async function pullOnce(): Promise<PullOutcome> {
         // when a cursor is stale, and it must be harmless.
         if (local && local.serverRev > incoming.serverRev) continue;
 
-        await db.sync_probe.put(incoming);
+        await adapter.table.put(incoming);
         applied += 1;
       }
     }
@@ -82,6 +87,52 @@ export async function pullOnce(): Promise<PullOutcome> {
   });
 
   return { applied, hasMore: data.hasMore, needsResync: false };
+}
+
+export interface RowLike {
+  id: string;
+  serverRev: number;
+  syncState: 'pending' | 'synced' | 'conflict';
+}
+
+/**
+ * One adapter per synced table.
+ *
+ * `table` is the Dexie handle, so the loop can read the local row and decide
+ * whether the incoming one is newer without a switch on the table name.
+ */
+interface RowStore {
+  get: (id: string) => Promise<RowLike | undefined>;
+  put: (row: RowLike) => Promise<unknown>;
+}
+
+const ADAPTERS: Record<string, { table: RowStore; adapt: (raw: Record<string, unknown>) => RowLike }> = {
+  // The cast is contained here: the loop only needs `id`, `serverRev` and
+  // `syncState`, and each table's real type is enforced by its own adapter.
+  sync_probe: { table: db.sync_probe as unknown as RowStore, adapt: toProbeRow },
+  patients: { table: db.patients as unknown as RowStore, adapt: toPatientRow },
+  households: { table: db.households as unknown as RowStore, adapt: toHouseholdRow },
+};
+
+/**
+ * Server rows arrive in the camelCase wire shape, which is exactly the local
+ * row shape apart from the sync state. A cast is honest here: the server is the
+ * authority for these columns, and inventing defaults for a missing one would
+ * hide a contract mismatch.
+ */
+function toSynced<T extends RowLike>(raw: Record<string, unknown>): T {
+  return {
+    ...(raw as unknown as T),
+    syncState: 'synced',
+  };
+}
+
+export function toPatientRow(raw: Record<string, unknown>): PatientRow {
+  return toSynced<PatientRow>(raw);
+}
+
+export function toHouseholdRow(raw: Record<string, unknown>): HouseholdRow {
+  return toSynced<HouseholdRow>(raw);
 }
 
 export function toProbeRow(raw: Record<string, unknown>): SyncProbeRow {

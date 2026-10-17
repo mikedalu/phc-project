@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Stethoscope,
   FlaskConical,
+  Home,
   UserCog,
   Users,
   type LucideIcon,
@@ -43,6 +44,13 @@ export const ROLE_NAV: NavEntry[] = [
     // A cashier or pharmacist has no business on the triage board.
     roles: ['front_desk', 'nurse', 'doctor', 'admin'],
     plannedSprint: 'Sprint 4',
+  },
+  {
+    to: '/households',
+    label: 'Households',
+    icon: Home,
+    // A family is the billing party, so the money roles need it too.
+    roles: ['front_desk', 'nurse', 'doctor', 'cashier', 'accountant', 'admin'],
   },
   { to: '/sync', label: 'Sync status', icon: Activity, roles: ALL_ROLES },
   { to: '/admin/users', label: 'Staff accounts', icon: UserCog, roles: ['admin'] },

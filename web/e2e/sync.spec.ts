@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { signIn } from './helpers';
 
 /**
  * The Sprint 2 proof: two workstations converge through the server.
@@ -10,20 +11,6 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
  * device keys and separate sessions, which is two physical workstations as far
  * as the server is concerned.
  */
-
-const PASSWORD = 'ChangeMe!2026';
-
-async function signIn(context: BrowserContext, staffNumber: string): Promise<Page> {
-  const page = await context.newPage();
-  await page.goto('/login');
-
-  await page.getByLabel('Staff number').fill(staffNumber);
-  await page.getByLabel('Password').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-
-  await expect(page).toHaveURL('/', { timeout: 45_000 });
-  return page;
-}
 
 async function openProbe(page: Page): Promise<void> {
   await page.goto('/dev/sync');
