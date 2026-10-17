@@ -1819,3 +1819,78 @@ Under deadline pressure, you will not build all of this. If you build only ten t
 **If you have one more day, add:** the rate limits in §9.1 (particularly the account+IP login pair and the referral PIN lockout), and test #5 (replay a captured sync request) — a single demonstrated replay rejection is the most impressive thing you can show an examiner.
 
 **What you can safely leave out and *say* you left out:** column-level encryption (§6.7), the audit hash chain (§6.5), remote wipe (§3.6), MDM, antivirus scanning of uploads (§8.4), and per-category retention automation. For each one, name the residual risk and the production answer. **A documented, reasoned omission reads as engineering judgement. An undocumented gap reads as an oversight.** That distinction is worth more marks than any single control in this document.
+
+---
+
+## 14. Sprint 9 audit — what was checked, what was found, what remains
+
+An OWASP-style pass over the delivered system, written down because an audit
+whose result is not recorded did not happen. Every row names the evidence, not
+an intention.
+
+### 14.1 Controls verified
+
+| Area | Check | Evidence |
+|---|---|---|
+| Authorization on every route | Every route requires a token except an explicit allow-list, each with a stated reason | `TestEveryRouteIsProtected` walks the live router; there are **44 routes** and **8 public exceptions** |
+| Role checks | Roles are enforced in the SERVICE layer, never in a handler or a repo | Handlers call `svc.*`; repos take a `Querier` and no `Actor` |
+| Multi-role users | Authorization considers **every** role held, not `PrimaryRole()` | A nurse who also holds `doctor` was wrongly refused before this was fixed; `StageAllowedForAnyRole` |
+| Password storage | Argon2id with per-user salt, parameters recorded in §3.1 | `platform/password` |
+| Access tokens | HS256, algorithm-confusion guard, issuer/audience/expiry all validated, 30 s leeway | `platform/token.Verify` |
+| Token revocation | Logout writes a `jti` denial; the check **fails closed** (503) if the denylist cannot be read | §3.6, `revoked_access_tokens`, D62 |
+| Refresh rotation | Rotation with reuse detection kills the family | `TestLogoutRevokesFamily`; `refresh_tokens` |
+| Login throttling | Per-account AND per-IP buckets, both returning 429 with `Retry-After` | `service/auth.go`; thresholds in `05-SECURITY.md` §9 |
+| Account enumeration | Unknown accounts run a dummy hash so timing matches; the message never says "no such user" | `service/auth.go` |
+| Device identity | ECDSA P-256 signature over a canonical string; nonce replay-guarded | `middleware.DeviceSignature`, `platform/nonce` |
+| Sync table registry | A table name arriving in a payload is resolved through the **applier registry and scope table** before any SQL. Unknown tables are rejected with `unknown_table`; the `fmt.Sprintf` formatting in the applier uses the applier's own constant, never the payload | `service/sync.go` §applyOne |
+| SQL injection | Every value is a bound parameter. The only interpolated identifiers are column specs declared in code | `repo/*.go` — no `Sprintf` around user values |
+| Referral confidentiality | AES-256-GCM; no patient UUID, phone or address in the token; the token is never stored | `service/referrals.go`, D61 |
+| Referral tampering | A modified token fails to open; the message is identical for every failure | verified live: `400 This referral code is not valid.` |
+| Money integrity | `payments.operation_id` UNIQUE; a replay returns the original receipt | verified in the E2E by resetting the outbox row |
+| Double-billing a bed-day | UNIQUE `(admission_id, charge_date)`; the loser gets `alreadyBilled: true` | verified live |
+| Derived balances | No `balance_minor` column exists anywhere | D56; the balance is an aggregate on every read |
+| Secrets in git | `.env` is ignored at the repo root and `git ls-files` confirms it is untracked | `git check-ignore -v .env` |
+| Dependencies | `go list -m all` → 70 modules; `pnpm audit --prod` → **no known vulnerabilities** | run in Sprint 9 |
+| Error leakage | Errors are mapped to the codes in `07-API-CONTRACT.md` §1.4; internal errors return a generic message plus a request id | `httpx.Error` |
+
+### 14.2 Findings from the audit itself
+
+Two were found **by building the features**, not by reading the code, and both
+would have passed a code review:
+
+1. **The change log was never written by REST endpoints** (D59). Only the sync
+   applier appended, so a payment taken at the desk was invisible to every
+   device that had already bootstrapped. Fixed with a trigger rather than by
+   remembering.
+2. **An empty change log read as "up to date"** (D63). With pruning in place, a
+   device holding a stale cursor was told everything was fine while permanently
+   missing data. Sequence numbers only increase, so a non-zero cursor against an
+   empty log is now a resync signal.
+
+A third was found by *trying to break the login*:
+
+3. **CORS allowed one loopback spelling** (D54). `localhost:5173` and
+   `127.0.0.1:5173` are different origins; the preflight was refused with a 403
+   in 0.03 s, which looks exactly like rejected credentials.
+
+### 14.3 Residual risk — read this before claiming the system is secure
+
+| Risk | Severity | Why it is accepted, and what would change it |
+|---|---|---|
+| **Whole-row LWW can lose one of two concurrent edits** | Medium | The loser is stored in `sync_conflicts` with BOTH payloads and shown in the UI, so nothing is silently lost. Per-field LWW was deferred (D64) because a merge bug writes the wrong clinical value silently, which is worse than a re-typed field |
+| **The denylist is a per-request database read** | Low | Correct on every instance; a cached denylist would be faster and would let a revoked token work on another instance for the cache window. At PHC scale the query is affordable |
+| **A referral token cannot be revoked by its bearer** | Low–Medium | It expires in 48 h and the issuing clinic can revoke it server-side, but a printed code in the wrong hands works until then. Mitigated by carrying no patient identifier |
+| **No rate limit on `/sync/push`** | Low | The device signature and the per-operation idempotency bound the damage; a compromised device is a compromised account either way |
+| **A revoked device bricks its own browser profile** | Low | There is no recovery path in the UI; the user must clear site data. Should be a screen, not a support call |
+| **PIN on referral read is not implemented** | Low | `REFERRAL_PIN_REQUIRED` exists and is unused. The QR is the credential today |
+| **Single-tenant, single facility** | By design | There is no tenant column anywhere; the deployment *is* the facility |
+| **No audit-log viewer** | Medium | `audit_logs` style endpoints were not built; `sync_change_log` and `sync_conflicts` record what happened but have no UI. For a real deployment this is the first report to build |
+| **No automated security regression tests** | Medium | The controls above are verified by the route-matrix test and by the E2E suite, but there is no dedicated security test pack (no fuzzing, no auth-bypass property tests) |
+
+### 14.4 The sentence to say out loud in the viva
+
+> "The security posture is: strong authentication and device identity, a
+> denylist that fails closed, encryption for anything that leaves the building,
+> and one financial constraint that does the work no amount of care could do.
+> The weakest point is not the cryptography, it is the absence of an audit view
+> and of dedicated security tests — both listed above with what would fix them."
