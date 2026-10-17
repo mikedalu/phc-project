@@ -115,8 +115,11 @@ func run() error {
 	consultationSvc := service.NewConsultation(pool)
 	consultationHandler := handler.NewConsultation(consultationSvc)
 
+	billingSvc := service.NewBilling(pool)
+	billingHandler := handler.NewBilling(billingSvc)
+
 	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
-		patientHandler, householdHandler, encounterHandler, consultationHandler, issuer)
+		patientHandler, householdHandler, encounterHandler, consultationHandler, billingHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -187,6 +190,7 @@ func buildRouter(
 	householdHandler *handler.Households,
 	encounterHandler *handler.Encounters,
 	consultationHandler *handler.Consultation,
+	billingHandler *handler.Billing,
 	issuer *token.Issuer,
 ) *gin.Engine {
 	router := gin.New()
@@ -384,6 +388,26 @@ func buildRouter(
 			middleware.RequireRole(domain.RoleLabScientist, domain.RoleAdmin),
 			consultationHandler.RecordLabResult,
 		)
+	}
+
+	// ─── billing ───────────────────────────────────────────────────
+	billing := v1.Group("")
+	billing.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleCashier, domain.RoleFrontDesk, domain.RoleAccountant, domain.RoleAdmin),
+	)
+	{
+		billing.POST("/invoices", billingHandler.CreateInvoice)
+		billing.GET("/invoices/:id/balance", billingHandler.InvoiceBalance)
+	}
+
+	payments := v1.Group("/payments")
+	payments.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleCashier, domain.RoleAdmin),
+	)
+	{
+		payments.POST("", billingHandler.RecordPayment)
 	}
 
 	// ─── households ────────────────────────────────────────────────

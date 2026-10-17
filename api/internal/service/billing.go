@@ -1,0 +1,417 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mikedalu/phc-records/api/internal/domain"
+	"github.com/mikedalu/phc-records/api/internal/platform/db"
+	"github.com/mikedalu/phc-records/api/internal/repo"
+)
+
+// Billing implements invoices, charges and payments.
+type Billing struct {
+	pool     *pgxpool.Pool
+	repo     *repo.Billing
+	patients *repo.Patients
+	users    *repo.Users
+	now      func() time.Time
+}
+
+// NewBilling wires the service.
+func NewBilling(pool *pgxpool.Pool) *Billing {
+	return &Billing{
+		pool:     pool,
+		repo:     repo.NewBilling(),
+		patients: repo.NewPatients(),
+		users:    repo.NewUsers(pool),
+		now:      time.Now,
+	}
+}
+
+// ChargeInput is one line the clerk adds to a bill.
+type ChargeInput struct {
+	ChargeType     string
+	Description    string
+	Quantity       float64
+	UnitPriceMinor int64
+	ReferenceID    *uuid.UUID
+	ReferenceType  *string
+}
+
+// CreateInvoiceInput is a bill and its lines.
+type CreateInvoiceInput struct {
+	ActorID       uuid.UUID
+	PatientID     uuid.UUID
+	EncounterID   *uuid.UUID
+	InvoiceType   string
+	InvoiceNumber string
+	Notes         string
+	Charges       []ChargeInput
+}
+
+// CreateInvoice writes the header and every line in ONE transaction.
+//
+// The total is computed here and stored on the header, which is the single
+// permitted denormalisation: it is a sum of immutable rows written in the same
+// transaction, and payments never change it. A balance would not have that
+// property and is therefore always derived.
+func (s *Billing) CreateInvoice(ctx context.Context, in CreateInvoiceInput) (*domain.Invoice, error) {
+	actor, err := s.requireBiller(ctx, in.ActorID)
+	if err != nil {
+		return nil, err
+	}
+
+	patient, err := s.patients.FindPatientByID(ctx, s.pool, in.PatientID)
+	if err != nil {
+		return nil, err
+	}
+
+	invoiceType := strings.TrimSpace(in.InvoiceType)
+	if invoiceType == "" {
+		invoiceType = "mixed"
+	}
+	switch invoiceType {
+	case "consultation", "lab", "drug", "ward", "procedure", "mixed":
+	default:
+		return nil, domain.NewValidation("invoiceType", "unknown_value")
+	}
+
+	if len(in.Charges) == 0 {
+		return nil, domain.NewValidation("charges", "at_least_one_required")
+	}
+
+	number := strings.TrimSpace(in.InvoiceNumber)
+	if number == "" {
+		number, err = s.generateNumber(ctx, "INV")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	invoice := &domain.Invoice{
+		ID:            uuid.New(),
+		InvoiceNumber: number,
+		PatientID:     patient.ID,
+		HouseholdID:   patient.HouseholdID,
+		EncounterID:   in.EncounterID,
+		InvoiceType:   invoiceType,
+		Status:        domain.InvoiceUnpaid,
+		IssuedAt:      s.now(),
+		IssuedBy:      actor.ID,
+		Notes:         optionalString(&in.Notes, 500),
+		CreatedBy:     actor.ID,
+		UpdatedBy:     actor.ID,
+	}
+
+	var total int64
+	lines := make([]*domain.Charge, 0, len(in.Charges))
+
+	for _, line := range in.Charges {
+		if strings.TrimSpace(line.Description) == "" {
+			return nil, domain.NewValidation("description", "required")
+		}
+		if line.UnitPriceMinor < 0 {
+			return nil, domain.NewValidation("unitPriceMinor", "must_not_be_negative")
+		}
+		qty := line.Quantity
+		if qty <= 0 {
+			qty = 1
+		}
+
+		amount := int64(roundTo2(float64(line.UnitPriceMinor) * qty))
+		total += amount
+
+		chargeType := strings.TrimSpace(line.ChargeType)
+		if chargeType == "" {
+			chargeType = "other"
+		}
+		switch chargeType {
+		case "consultation", "lab", "drug", "ward", "procedure", "registration", "other":
+		default:
+			return nil, domain.NewValidation("chargeType", "unknown_value")
+		}
+
+		lines = append(lines, &domain.Charge{
+			ID:             uuid.New(),
+			InvoiceID:      invoice.ID,
+			PatientID:      patient.ID,
+			HouseholdID:    patient.HouseholdID,
+			ChargeType:     chargeType,
+			Description:    strings.TrimSpace(line.Description),
+			ReferenceID:    line.ReferenceID,
+			ReferenceType:  line.ReferenceType,
+			Quantity:       qty,
+			UnitPriceMinor: line.UnitPriceMinor,
+			AmountMinor:    amount,
+			Status:         "active",
+			PostedAt:       s.now(),
+			CreatedBy:      actor.ID,
+			UpdatedBy:      actor.ID,
+		})
+	}
+
+	invoice.TotalMinor = total
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.repo.InsertInvoice(ctx, tx, invoice); err != nil {
+			return err
+		}
+		for _, line := range lines {
+			if err := s.repo.InsertCharge(ctx, tx, line); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return invoice, nil
+}
+
+// RecordPaymentInput is money handed over.
+type RecordPaymentInput struct {
+	ActorID       uuid.UUID
+	OperationID   uuid.UUID
+	InvoiceID     uuid.UUID
+	AmountMinor   int64
+	Method        string
+	Reference     string
+	Notes         string
+	ReceiptNumber string
+}
+
+// RecordPayment posts money against one invoice and allocates it across that
+// invoice's outstanding charges.
+//
+// ═══ IDEMPOTENCY ═══
+//
+// `operation_id` is generated by the DEVICE and unique in the database. A
+// retried sync batch therefore cannot charge a patient twice: the second insert
+// conflicts and is reported as a duplicate with the original payment returned.
+// This is the one place in the system where a retry would cost real money.
+func (s *Billing) RecordPayment(ctx context.Context, in RecordPaymentInput) (*domain.Payment, bool, error) {
+	actor, err := s.requireBiller(ctx, in.ActorID)
+	if err != nil {
+		return nil, false, err
+	}
+	if in.AmountMinor <= 0 {
+		return nil, false, domain.NewValidation("amountMinor", "must_be_positive")
+	}
+
+	method := strings.TrimSpace(in.Method)
+	if method == "" {
+		method = domain.PaymentCash
+	}
+	switch method {
+	case domain.PaymentCash, domain.PaymentTransfer, domain.PaymentPOSCard, domain.PaymentWaiver:
+	default:
+		return nil, false, domain.NewValidation("paymentMethod", "unknown_value")
+	}
+
+	invoice, err := s.repo.FindInvoice(ctx, s.pool, in.InvoiceID)
+	if err != nil {
+		return nil, false, err
+	}
+	if invoice.Status == domain.InvoiceVoid {
+		return nil, false, domain.Public(domain.ErrValidation, "This invoice has been voided.")
+	}
+
+	// Refuse an overpayment BEFORE writing anything: the allocation below would
+	// leave a credit the system has no concept of, and refunds are not in scope.
+	balance, err := s.repo.InvoiceBalance(ctx, s.pool, invoice.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if in.AmountMinor > balance.BalanceMinor {
+		return nil, false, domain.Publicf(domain.ErrValidation,
+			"That is more than the outstanding balance of %s.",
+			formatMoney(balance.BalanceMinor))
+	}
+
+	receipt := strings.TrimSpace(in.ReceiptNumber)
+	if receipt == "" {
+		receipt, err = s.generateNumber(ctx, "RCP")
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	payment := &domain.Payment{
+		ID:             uuid.New(),
+		OperationID:    in.OperationID,
+		ReceiptNumber:  receipt,
+		PayerPatientID: &invoice.PatientID,
+		HouseholdID:    invoice.HouseholdID,
+		AmountMinor:    in.AmountMinor,
+		CurrencyCode:   "NGN",
+		Method:         method,
+		Reference:      optionalString(&in.Reference, 100),
+		Status:         "posted",
+		PaidAt:         s.now(),
+		ReceivedBy:     actor.ID,
+		Notes:          optionalString(&in.Notes, 500),
+		CreatedBy:      actor.ID,
+		UpdatedBy:      actor.ID,
+	}
+
+	posted := false
+
+	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		inserted, err := s.repo.InsertPayment(ctx, tx, payment)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			// Already posted by another attempt. Nothing to allocate, and the
+			// caller reports a duplicate.
+			return nil
+		}
+		posted = true
+
+		remaining := in.AmountMinor
+		charges, err := s.repo.ActiveCharges(ctx, tx, invoice.ID)
+		if err != nil {
+			return err
+		}
+		for _, charge := range charges {
+			if remaining <= 0 {
+				break
+			}
+			// Do not over-allocate a single line: a charge takes at most what it
+			// is still owed.
+			settled, err := settledForCharge(ctx, tx, charge.ID)
+			if err != nil {
+				return err
+			}
+			due := charge.AmountMinor - settled
+			if due <= 0 {
+				continue
+			}
+			amount := due
+			if amount > remaining {
+				amount = remaining
+			}
+			if err := s.repo.Allocate(ctx, tx, &domain.Allocation{
+				ID:          uuid.New(),
+				PaymentID:   payment.ID,
+				ChargeID:    charge.ID,
+				AmountMinor: amount,
+				AllocatedAt: s.now(),
+				AllocatedBy: actor.ID,
+			}); err != nil {
+				return err
+			}
+			remaining -= amount
+		}
+
+		after, err := s.repo.InvoiceBalance(ctx, tx, invoice.ID)
+		if err != nil {
+			return err
+		}
+		status := domain.InvoicePartiallyPaid
+		if after.BalanceMinor <= 0 {
+			status = domain.InvoicePaid
+		}
+		return s.repo.SetInvoiceStatus(ctx, tx, invoice.ID, status, actor.ID)
+	}); err != nil {
+		return nil, false, err
+	}
+
+	if !posted {
+		// Return the ORIGINAL payment so the client can show the same receipt.
+		existing, err := s.findPaymentByOperation(ctx, in.OperationID)
+		if err != nil {
+			return nil, false, err
+		}
+		return existing, false, nil
+	}
+
+	return payment, true, nil
+}
+
+// InvoiceBalance returns what is still owed.
+func (s *Billing) InvoiceBalance(ctx context.Context, actorID, invoiceID uuid.UUID) (*domain.InvoiceBalance, error) {
+	if _, err := s.users.FindByID(ctx, s.pool, actorID); err != nil {
+		return nil, err
+	}
+	return s.repo.InvoiceBalance(ctx, s.pool, invoiceID)
+}
+
+func (s *Billing) findPaymentByOperation(ctx context.Context, operationID uuid.UUID) (*domain.Payment, error) {
+	const sql = `
+        SELECT id, operation_id, receipt_number, payer_patient_id, household_id,
+               amount_minor, currency_code, payment_method, payment_reference,
+               status, paid_at, received_by, notes,
+               created_at, updated_at, created_by, updated_by
+          FROM payments WHERE operation_id = $1`
+
+	var p domain.Payment
+	if err := s.pool.QueryRow(ctx, sql, operationID).Scan(
+		&p.ID, &p.OperationID, &p.ReceiptNumber, &p.PayerPatientID, &p.HouseholdID,
+		&p.AmountMinor, &p.CurrencyCode, &p.Method, &p.Reference,
+		&p.Status, &p.PaidAt, &p.ReceivedBy, &p.Notes,
+		&p.CreatedAt, &p.UpdatedAt, &p.CreatedBy, &p.UpdatedBy,
+	); err != nil {
+		return nil, fmt.Errorf("find payment by operation: %w", err)
+	}
+	return &p, nil
+}
+
+func (s *Billing) requireBiller(ctx context.Context, actorID uuid.UUID) (*domain.User, error) {
+	actor, err := s.users.FindByID(ctx, s.pool, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if !actor.IsActive {
+		return nil, domain.Public(domain.ErrForbidden, "This account is disabled.")
+	}
+	if !domain.HasAnyRole(actor.Roles, domain.RoleCashier, domain.RoleFrontDesk, domain.RoleAdmin) {
+		return nil, domain.Public(domain.ErrForbidden, "Your role cannot take payments.")
+	}
+	return actor, nil
+}
+
+func (s *Billing) generateNumber(ctx context.Context, kind string) (string, error) {
+	const sql = `SELECT code FROM facilities WHERE deleted_at IS NULL LIMIT 1`
+	var code string
+	if err := s.pool.QueryRow(ctx, sql).Scan(&code); err != nil {
+		return "", fmt.Errorf("read facility code: %w", err)
+	}
+	buf := make([]byte, 3)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate number: %w", err)
+	}
+	return fmt.Sprintf("%s/%s/%d/%s", code, kind, s.now().Year(), strings.ToUpper(hex.EncodeToString(buf))), nil
+}
+
+func formatMoney(minor int64) string {
+	return fmt.Sprintf("₦%d.%02d", minor/100, minor%100)
+}
+
+// settledForCharge sums what has already been allocated to one charge.
+func settledForCharge(ctx context.Context, tx pgx.Tx, chargeID uuid.UUID) (int64, error) {
+	const sql = `
+        SELECT COALESCE(sum(amount_minor), 0)
+          FROM payment_allocations
+         WHERE charge_id = $1 AND deleted_at IS NULL`
+
+	var settled int64
+	if err := tx.QueryRow(ctx, sql, chargeID).Scan(&settled); err != nil {
+		return 0, fmt.Errorf("settled for charge: %w", err)
+	}
+	return settled, nil
+}
+
+func roundTo2(v float64) float64 {
+	return float64(int64(v*100+0.5)) / 100
+}
