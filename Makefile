@@ -86,7 +86,11 @@ seed: ## Load development seed data (idempotent)
 
 .PHONY: api
 api: ## Run the API locally with hot-ish reload (go run)
-	cd $(API_DIR) && go run ./cmd/api
+	@test -f .env || { echo "!! .env missing. Run: cp .env.example .env"; exit 1; }
+	@set -a; . ./.env; set +a; \
+	 test -n "$$DATABASE_URL" || { \
+	   echo "!! DATABASE_URL is empty. Are the URLs double-quoted in .env?"; exit 1; }; \
+	 cd $(API_DIR) && go run ./cmd/api
 
 .PHONY: build
 build: ## Build the API binary into api/bin/

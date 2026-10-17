@@ -20,6 +20,13 @@ import (
 // Fields are grouped by concern and every value is resolved once at startup, so
 // no code anywhere else in the program calls os.Getenv.
 type Config struct {
+	// dotEnvPath records which .env file was loaded, for Warnings(). Not
+	// configuration itself: it must never be printed in production responses.
+	dotEnvPath string
+	// envLoadWasNeeded is true when the process environment was empty before
+	// the file was read — i.e. the .env actually saved the day.
+	envLoadWasNeeded bool
+
 	AppEnv   string
 	LogLevel string
 	Port     string
@@ -59,14 +66,37 @@ const (
 // It returns an error rather than calling log.Fatal, so tests can exercise the
 // validation logic without killing the test binary.
 func Load() (*Config, error) {
-	// Best-effort: in production the real environment is already populated and
-	// there is no .env file, so a missing file is not an error. Only a malformed
-	// file is worth reporting, and even then we prefer the real env over it.
-	_ = godotenv.Load()
+	// ═══ WHY TWO PATHS ═══
+	//
+	// `make api` runs `cd api && go run ./cmd/api`, so the working directory is
+	// api/ — and godotenv.Load() with no argument looks for ./.env, which does
+	// not exist there. The repository's .env is one level up. Without the
+	// fallback, a perfectly good .env is silently ignored and the server dies
+	// with "DATABASE_URL is required", which looks like a missing secret rather
+	// than a working-directory problem.
+	//
+	// Best-effort either way: in production the environment is already populated
+	// and there is no .env, so a missing file is not an error.
+	// Only worth reporting if the file actually supplied something. Under
+	// `make api` the Makefile has already exported these, so a redundant load
+	// must not print a warning on every single start.
+	neededFromFile := os.Getenv("DATABASE_URL") == ""
+	dotEnvPath := ""
+	for _, candidate := range []string{".env", "../.env"} {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		if err := godotenv.Load(candidate); err == nil {
+			dotEnvPath = candidate
+			break
+		}
+	}
 
 	c := &Config{
-		AppEnv:   getEnv("APP_ENV", "development"),
-		LogLevel: getEnv("LOG_LEVEL", "info"),
+		dotEnvPath:       dotEnvPath,
+		envLoadWasNeeded: neededFromFile,
+		AppEnv:           getEnv("APP_ENV", "development"),
+		LogLevel:         getEnv("LOG_LEVEL", "info"),
 		// Cloud Run injects PORT and health-checks that exact port. This default
 		// is for local development only. Never hard-code a port in main.
 		Port: getEnv("PORT", "8080"),
@@ -171,6 +201,15 @@ func (c *Config) Warnings() []string {
 	var w []string
 
 	if !c.IsProduction() {
+		if c.dotEnvPath == "" && os.Getenv("DATABASE_URL") == "" {
+			// Say it out loud. A silently ignored .env produces an error message
+			// about a missing variable, which sends people hunting for a secret
+			// they already have.
+			w = append(w, "no .env file found in ./.env or ../.env — using the process environment only")
+		}
+		if c.envLoadWasNeeded && c.dotEnvPath != "" && c.dotEnvPath != ".env" {
+			w = append(w, "loaded environment from "+c.dotEnvPath+" (running from a subdirectory)")
+		}
 		if len(c.JWTSecret) == 0 {
 			w = append(w, "JWT_SECRET is not set — authentication will not work until Sprint 1 wires it up")
 		}
