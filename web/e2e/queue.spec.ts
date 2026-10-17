@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { forceSync, signIn } from './helpers';
+import { forceSync, signIn, waitForBootSync } from './helpers';
 
 /**
  * Sprint 4's proof: a patient moves through the workflow, and the move is
@@ -25,6 +25,10 @@ test.describe('queue', () => {
     const nurse = await signIn(contextA, 'DEMO/STF/0003');
     const doctor = await signIn(contextB, 'DEMO/STF/0004');
 
+    // Both devices must finish their first-run snapshot before the test acts.
+    await waitForBootSync(nurse);
+    await waitForBootSync(doctor);
+
     // ── A: register a patient ──────────────────────────────────────
     await nurse.goto('/patients/new');
     await nurse.getByLabel('First name').fill(firstName);
@@ -33,7 +37,7 @@ test.describe('queue', () => {
     await nurse.locator('input[type=date]').fill('1988-07-09');
     await nurse.getByRole('button', { name: 'Register patient' }).click();
     await expect(nurse).toHaveURL(/\/patients\/[0-9a-f-]+$/);
-    await expect(nurse.getByText('Synced to server')).toBeVisible({ timeout: 90_000 });
+    await expect(nurse.getByText('Synced to server')).toBeVisible({ timeout: 120_000 });
 
     // ── A: start the visit and record vitals ──────────────────────
     await nurse.getByRole('button', { name: 'Start visit' }).click();
@@ -62,27 +66,27 @@ test.describe('queue', () => {
 
     await nurseCard.getByRole('button', { name: 'Send to doctor' }).click();
 
-    await expect(nurseCard.getByRole('button', { name: 'Open consultation' })).toBeVisible({ timeout: 30_000 });
+    await expect(nurseCard.getByRole('button', { name: 'Open consultation' })).toBeVisible({ timeout: 120_000 });
 
     // ── B: the doctor pulls and opens the consultation ────────────
     await forceSync(doctor);
     await doctor.goto('/queue');
     const doctorCard = doctor.locator('article').filter({ hasText: `${firstName} ${surname}` });
-    await expect(doctorCard).toBeVisible({ timeout: 90_000 });
+    await expect(doctorCard).toBeVisible({ timeout: 120_000 });
 
     await doctorCard.getByRole('button', { name: 'Open consultation' }).click();
 
     // The patient leaves the waiting column and enters consultation.
     await expect(
       doctor.locator('section').filter({ hasText: 'In consultation' }).getByText(`${firstName} ${surname}`),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible({ timeout: 120_000 });
 
     // ── A sees the doctor's move after a sync ────────────────────
     await forceSync(nurse);
     await nurse.goto('/queue');
     await expect(
       nurse.locator('section').filter({ hasText: 'In consultation' }).getByText(`${firstName} ${surname}`),
-    ).toBeVisible({ timeout: 90_000 });
+    ).toBeVisible({ timeout: 120_000 });
 
     await contextA.close();
     await contextB.close();

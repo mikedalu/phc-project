@@ -104,8 +104,13 @@ func Load() (*Config, error) {
 		DatabaseURL:          os.Getenv("DATABASE_URL"),
 		MigrationDatabaseURL: os.Getenv("MIGRATION_DATABASE_URL"),
 
-		AllowedOrigins: splitAndTrim(getEnv("ALLOWED_ORIGINS", "http://localhost:5173")),
-		TrustProxy:     getEnv("TRUST_PROXY", "false") == "true",
+		// Both loopback spellings are included by default: `localhost` and
+		// `127.0.0.1` are different origins to a browser, and allowing only one
+		// rejects the other at the preflight with a 403 that never reaches a
+		// handler — indistinguishable from a rejected password.
+		AllowedOrigins: splitAndTrim(getEnv("ALLOWED_ORIGINS",
+			"http://localhost:5173,http://127.0.0.1:5173")),
+		TrustProxy: getEnv("TRUST_PROXY", "false") == "true",
 
 		OfflinePolicy: getEnv("OFFLINE_POLICY", OfflinePolicyBlockWrites),
 

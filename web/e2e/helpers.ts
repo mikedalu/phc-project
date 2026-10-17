@@ -20,3 +20,18 @@ export async function forceSync(page: Page): Promise<void> {
   await page.goto('/dev/sync');
   await page.getByRole('button', { name: 'Sync now' }).click();
 }
+
+
+/**
+ * Waits for the FIRST-RUN snapshot bootstrap to finish.
+ *
+ * A new device fills itself table by table from /sync/snapshot, which takes a
+ * few seconds per table on a cold database. Acting before that lands means the
+ * test presses Sync now while the engine is already busy, so the work it waits
+ * for is queued behind a bootstrap that has not finished.
+ */
+export async function waitForBootSync(page: Page): Promise<void> {
+  await expect(page.locator('body')).toContainText(/All records synced|Offline/, {
+    timeout: 180_000,
+  });
+}

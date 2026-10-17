@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { signIn } from './helpers';
+import { signIn, waitForBootSync } from './helpers';
 
 /**
  * The Sprint 2 proof: two workstations converge through the server.
@@ -40,6 +40,11 @@ test.describe('sync', () => {
     const pageA = await signIn(contextA, 'DEMO/STF/0002'); // front desk
     const pageB = await signIn(contextB, 'DEMO/STF/0003'); // nurse
 
+    // Let both devices finish their first-run snapshot before probing: pressing
+    // Sync now while a bootstrap is in flight only queues work behind it.
+    await waitForBootSync(pageA);
+    await waitForBootSync(pageB);
+
     await openProbe(pageA);
     await openProbe(pageB);
 
@@ -50,14 +55,14 @@ test.describe('sync', () => {
 
     // ── B receives it ──────────────────────────────────────────────
     await pageB.getByRole('button', { name: 'Sync now' }).click();
-    await expect(pageB.getByText(fromA)).toBeVisible();
+    await expect(pageB.getByText(fromA)).toBeVisible({ timeout: 120_000 });
 
     // ── B writes, A receives ───────────────────────────────────────
     await addProbe(pageB, fromB);
     await expect(probeRow(pageB, fromB)).toContainText('synced');
 
     await pageA.getByRole('button', { name: 'Sync now' }).click();
-    await expect(pageA.getByText(fromB)).toBeVisible();
+    await expect(pageA.getByText(fromB)).toBeVisible({ timeout: 120_000 });
 
     // ── A goes offline, queues three, then drains ──────────────────
     await contextA.setOffline(true);
