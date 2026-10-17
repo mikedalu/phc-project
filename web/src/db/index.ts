@@ -2,7 +2,11 @@ import Dexie, { type EntityTable } from 'dexie';
 import type {
   DeviceKeyRow,
   DiagnosisRow,
+  AllocationRow,
+  ChargeRow,
   EncounterRow,
+  InvoiceRow,
+  PaymentRow,
   HouseholdRow,
   LabOrderRow,
   LabResultRow,
@@ -49,6 +53,10 @@ export const db = new Dexie('phc_records') as Dexie & {
   diagnoses: EntityTable<DiagnosisRow, 'id'>;
   lab_orders: EntityTable<LabOrderRow, 'id'>;
   lab_results: EntityTable<LabResultRow, 'id'>;
+  invoices: EntityTable<InvoiceRow, 'id'>;
+  charges: EntityTable<ChargeRow, 'id'>;
+  payments: EntityTable<PaymentRow, 'id'>;
+  payment_allocations: EntityTable<AllocationRow, 'id'>;
 
   // ── local-only infrastructure (never synced) ────────────────────────
   outbox: EntityTable<OutboxEntry, 'id'>;
@@ -168,6 +176,20 @@ db.version(5).stores({
  * Append-only like vitals: a corrected value is a NEW row, so this store is
  * never updated after insert and never needs a mutable index.
  */
+/**
+ * v10 — money.
+ *
+ * Balances are NOT stored here either. They are computed from charges minus
+ * allocations on every render, for the same reason as on the server: a stored
+ * balance is right until two devices write at once.
+ */
+db.version(10).stores({
+  invoices: 'id, patientId, householdId, encounterId, status, issuedAt, serverRev, syncState',
+  charges: 'id, invoiceId, patientId, householdId, status, serverRev, syncState',
+  payments: 'id, operationId, receiptNumber, householdId, paidAt, serverRev, syncState',
+  payment_allocations: 'id, paymentId, chargeId, serverRev, syncState',
+});
+
 db.version(9).stores({
   lab_results: 'id, labOrderId, patientId, resultAt, serverRev, syncState',
 });

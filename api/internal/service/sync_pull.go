@@ -90,6 +90,34 @@ var tableColumns = map[string]string{
 		"temperature_c, pulse_rate, respiratory_rate, height_cm, weight_kg, spo2, bmi, " +
 		"pain_score, notes, recorded_by, revision, server_rev, sync_state, deleted_at, " +
 		"created_at, updated_at, created_by, updated_by",
+
+	// Billing. Missing from this map means "not_snapshottable", which a NEW
+	// device cannot recover from: its bootstrap silently skips the table, then
+	// adopts a cursor past every existing row, so the invoices never arrive at
+	// all. That exact gap hid the cashier's whole screen for a round.
+	"tariffs": "id, code, name, category, unit_price_minor, unit, is_active, " +
+		"effective_from, effective_to, revision, server_rev, sync_state, deleted_at, " +
+		"created_at, updated_at, created_by, updated_by",
+
+	"invoices": "id, invoice_number, patient_id, household_id, encounter_id, invoice_type, " +
+		"status, total_minor, issued_at, issued_by, voided_at, voided_by, void_reason, notes, " +
+		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
+		"created_by, updated_by",
+
+	"charges": "id, invoice_id, patient_id, household_id, charge_type, tariff_id, description, " +
+		"reference_id, reference_type, quantity, unit_price_minor, amount_minor, status, " +
+		"posted_at, voided_at, voided_by, void_reason, revision, server_rev, sync_state, " +
+		"deleted_at, created_at, updated_at, created_by, updated_by",
+
+	"payments": "id, operation_id, receipt_number, payer_patient_id, household_id, " +
+		"amount_minor, currency_code, payment_method, payment_reference, status, paid_at, " +
+		"received_by, reversal_of_payment_id, reversed_by_payment_id, reversal_reason, notes, " +
+		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
+		"created_by, updated_by",
+
+	"payment_allocations": "id, payment_id, charge_id, amount_minor, allocated_at, " +
+		"allocated_by, revision, server_rev, sync_state, deleted_at, created_at, " +
+		"updated_at, created_by, updated_by",
 }
 
 // redactedColumns is defence in depth for columns that must never leave.

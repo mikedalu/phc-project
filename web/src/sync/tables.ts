@@ -23,6 +23,10 @@ export const SYNCED_TABLES = [
   'diagnoses',
   'lab_orders',
   'lab_results',
+  'invoices',
+  'charges',
+  'payments',
+  'payment_allocations',
 ] as const;
 
 export type SyncedTableName = (typeof SYNCED_TABLES)[number];
@@ -38,5 +42,9 @@ export function syncedTableHandles() {
     db.diagnoses,
     db.lab_orders,
     db.lab_results,
+    db.invoices,
+    db.charges,
+    db.payments,
+    db.payment_allocations,
   ];
 }

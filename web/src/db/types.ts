@@ -146,6 +146,68 @@ export interface LabResultRow extends BaseRow {
   remarks: string | null;
 }
 
+/** The bill. `totalMinor` is a sum of charges, NOT a balance. */
+export interface InvoiceRow extends BaseRow {
+  invoiceNumber: string;
+  patientId: string;
+  householdId: string | null;
+  encounterId: string | null;
+  invoiceType: string;
+  status: 'unpaid' | 'partially_paid' | 'paid' | 'void';
+  totalMinor: number;
+  issuedAt: string;
+  issuedBy: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+  notes: string | null;
+}
+
+/** One line of a bill. `unitPriceMinor` is snapshotted at creation. */
+export interface ChargeRow extends BaseRow {
+  invoiceId: string;
+  patientId: string;
+  householdId: string | null;
+  chargeType: string;
+  tariffId: string | null;
+  description: string;
+  referenceId: string | null;
+  referenceType: string | null;
+  quantity: number;
+  unitPriceMinor: number;
+  amountMinor: number;
+  status: 'active' | 'void';
+  postedAt: string;
+}
+
+/**
+ * Money received. APPEND-ONLY, and `operationId` is the idempotency key: the
+ * same value must never post twice, on any device.
+ */
+export interface PaymentRow extends BaseRow {
+  operationId: string;
+  receiptNumber: string;
+  payerPatientId: string | null;
+  householdId: string | null;
+  amountMinor: number;
+  currencyCode: string;
+  paymentMethod: 'cash' | 'transfer' | 'pos_card' | 'waiver';
+  paymentReference: string | null;
+  status: 'posted' | 'reversed';
+  paidAt: string;
+  receivedBy: string;
+  reversalOfPaymentId: string | null;
+  notes: string | null;
+}
+
+/** Which charge a payment settled. Append-only. */
+export interface AllocationRow extends BaseRow {
+  paymentId: string;
+  chargeId: string;
+  amountMinor: number;
+  allocatedAt: string;
+  allocatedBy: string;
+}
+
 export interface VitalsRow extends BaseRow {
   patientId: string;
   encounterId: string | null;
