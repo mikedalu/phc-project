@@ -118,8 +118,11 @@ func run() error {
 	billingSvc := service.NewBilling(pool)
 	billingHandler := handler.NewBilling(billingSvc)
 
+	wardSvc := service.NewWard(pool)
+	wardHandler := handler.NewWard(wardSvc)
+
 	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
-		patientHandler, householdHandler, encounterHandler, consultationHandler, billingHandler, issuer)
+		patientHandler, householdHandler, encounterHandler, consultationHandler, billingHandler, wardHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -191,6 +194,7 @@ func buildRouter(
 	encounterHandler *handler.Encounters,
 	consultationHandler *handler.Consultation,
 	billingHandler *handler.Billing,
+	wardHandler *handler.Ward,
 	issuer *token.Issuer,
 ) *gin.Engine {
 	router := gin.New()
@@ -399,6 +403,18 @@ func buildRouter(
 	)
 	{
 		pharmacy.POST("/:id/dispense", consultationHandler.Dispense)
+	}
+
+	// ─── ward ──────────────────────────────────────────────────────
+	ward := v1.Group("/admissions")
+	ward.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleNurse, domain.RoleDoctor, domain.RoleAdmin),
+	)
+	{
+		ward.POST("", wardHandler.Admit)
+		ward.POST("/:id/bed-days", wardHandler.AccrueNight)
+		ward.POST("/:id/discharge", wardHandler.Discharge)
 	}
 
 	// ─── billing ───────────────────────────────────────────────────
