@@ -407,20 +407,53 @@ reported in `results[]` with `status: "rejected"` and a `reason` (`forbidden`, `
 
 ### `GET /sync/pull` 🔐
 
+**JWT-only, not device-signed.** A read cannot change anything, and signing it adds CPU to the
+request most likely to hit a Cloud Run cold start (see `05-SECURITY.md` §4.4.1). It is still
+authenticated, scoped and rate-limited.
+
 | Param | Type | Default | Notes |
 |---|---|---|---|
-| `since` | int64 | 0 | Last applied `seq` |
+| `since` | int64 | 0 | Last applied `seq`. 0 means bootstrap — use `/sync/snapshot` |
 | `limit` | int | 500 | Max 2000 |
 
-Returns changes, rows, `nextCursor`, `hasMore`, `fullResyncRequired`. `02-SYNC-PROTOCOL.md` §7.
+| Situation | Status | `code` |
+|---|---|---|
+| `limit` out of range, or non-numeric `since` | 400 | `VALIDATION_FAILED` |
+| No token | 401 | `UNAUTHENTICATED` |
+
+Returns `changes`, `rows`, `nextCursor`, `hasMore`, `fullResyncRequired`. `02-SYNC-PROTOCOL.md` §7.
+
+**`nextCursor` is the seq of the LAST CHANGE READ**, not `max(seq)` of the table, and the read
+runs inside one `REPEATABLE READ` transaction. `seq` is not gap-free; outside a snapshot a reader
+can see seq 10240 while 10238–10239 are uncommitted, advance past the gap, and lose those rows for
+ever.
+
+| Field | Meaning |
+|---|---|
+| `changes` | Ordered manifest. Filtered by `pull_roles`, but the cursor still advances past filtered entries — otherwise a client would re-request the same window for ever |
+| `rows` | Each distinct current row **once**, however many times it changed in the window |
+| `fullResyncRequired` | `true` with `reason: "cursor_expired"` and `oldestAvailableSeq` when the cursor predates retention. A device that old cannot catch up incrementally; the client must re-bootstrap |
+| `serverTime` | Server clock, for skew display |
+
+**Redaction.** `users` rows are built from an explicit column allowlist that does **not** include
+`password_hash`, `password_changed_at`, `failed_login_count` or `locked_until`; the delete pass in
+`redactRows` is defence in depth. There is one place rows are serialised, so there is one place a
+hash could leak.
 
 ### `GET /sync/snapshot` 🔐
 
+**JWT-only**, like pull.
+
 | Param | Type | Notes |
 |---|---|---|
-| `table` | string | Required; must be a syncable table |
-| `after` | uuid | Keyset pagination cursor (last `id` seen) |
+| `table` | string | Required; must be in `sync_table_scopes` **and** have a column allowlist |
+| `after` | uuid | Keyset pagination cursor (last `id` seen). Keyset, never `OFFSET` |
 | `limit` | int | Default 500, max 1000 |
+
+| Situation | Status | `code` |
+|---|---|---|
+| Missing or unknown `table` | 400 | `VALIDATION_FAILED` |
+| Role may not read that table | 403 | `FORBIDDEN` |
 
 ```json
 {

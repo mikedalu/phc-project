@@ -94,3 +94,41 @@ type BatchResult struct {
 	ConflictLWW int
 	Rejected    int
 }
+
+// PullChange is one entry of the ordered pull manifest.
+type PullChange struct {
+	Seq       int64
+	Table     string
+	RowID     string
+	Operation string
+	ServerRev int64
+}
+
+// PullResult is one page of changes plus the current state of every row named.
+//
+// `Changes` and `Rows` are deliberately separate: the manifest is ordered and
+// advances the cursor, while a row appears in `Rows` once however many times it
+// changed in the window.
+type PullResult struct {
+	Changes []PullChange
+	Rows    map[string][]map[string]any
+
+	// NextCursor is the seq of the LAST change READ, not max(seq) of the table.
+	// Using max(seq) skips anything committed between the read and the query.
+	NextCursor int64
+	HasMore    bool
+
+	FullResyncRequired bool
+	Reason             string
+	OldestAvailableSeq int64
+
+	ServerTime time.Time
+}
+
+// SnapshotResult is one keyset page of a table's current state.
+type SnapshotResult struct {
+	Table         string
+	Rows          []map[string]any
+	HasMore       bool
+	CursorAtStart int64
+}

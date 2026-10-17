@@ -289,6 +289,16 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 		syncGroup.POST("/push", syncHandler.Push)
 	}
 
+	// Reads are JWT-only. Same path prefix, deliberately NO signature middleware:
+	// signing a read costs CPU on the request most likely to time out at cold
+	// start, and cannot prevent anything a tamperer would want to do.
+	syncReadGroup := v1.Group("/sync")
+	syncReadGroup.Use(middleware.RequireAuth(issuer))
+	{
+		syncReadGroup.GET("/pull", syncHandler.Pull)
+		syncReadGroup.GET("/snapshot", syncHandler.Snapshot)
+	}
+
 	// /meta is what the client calls at boot: everything it needs to configure
 	// itself, in one request. In Sprint 0 it also proves the full round trip,
 	// because facilityCount requires a real query against Neon.

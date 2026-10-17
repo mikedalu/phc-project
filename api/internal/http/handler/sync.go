@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -172,3 +173,153 @@ func toOpResultDTOs(results []domain.OpResult) []opResultDTO {
 	}
 	return out
 }
+
+// ─── Pull ──────────────────────────────────────────────────────────
+
+type pullChangeDTO struct {
+	Seq       int64  `json:"seq"`
+	Table     string `json:"table"`
+	RowID     string `json:"rowId"`
+	Operation string `json:"operation"`
+	ServerRev int64  `json:"serverRev"`
+}
+
+type pullResponseDTO struct {
+	Changes            []pullChangeDTO             `json:"changes"`
+	Rows               map[string][]map[string]any `json:"rows"`
+	NextCursor         int64                       `json:"nextCursor"`
+	HasMore            bool                        `json:"hasMore"`
+	FullResyncRequired bool                        `json:"fullResyncRequired"`
+	Reason             string                      `json:"reason,omitempty"`
+	OldestAvailableSeq int64                       `json:"oldestAvailableSeq,omitempty"`
+	ServerTime         string                      `json:"serverTime"`
+}
+
+// Pull handles GET /api/v1/sync/pull.
+//
+// JWT-only and NOT device-signed: it is read-only, so a signature adds CPU to
+// the request most likely to hit a cold-start timeout, and protects against
+// tampering that cannot change anything (docs/05-SECURITY.md §4.4.1).
+func (h *Sync) Pull(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	since, err := intQuery(c, "since", 0, 0, 1<<62)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "since must be a non-negative integer.", nil)
+		return
+	}
+	limit, err := intQuery(c, "limit", 0, 0, 2000)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "limit must be a number between 0 and 2000.", nil)
+		return
+	}
+
+	result, err := h.svc.Pull(c.Request.Context(), service.PullInput{
+		ActorID: actor.UserID,
+		Since:   since,
+		Limit:   int(limit),
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	changes := make([]pullChangeDTO, 0, len(result.Changes))
+	for _, ch := range result.Changes {
+		changes = append(changes, pullChangeDTO{
+			Seq: ch.Seq, Table: ch.Table, RowID: ch.RowID,
+			Operation: ch.Operation, ServerRev: ch.ServerRev,
+		})
+	}
+
+	httpx.OK(c, pullResponseDTO{
+		Changes:            changes,
+		Rows:               result.Rows,
+		NextCursor:         result.NextCursor,
+		HasMore:            result.HasMore,
+		FullResyncRequired: result.FullResyncRequired,
+		Reason:             result.Reason,
+		OldestAvailableSeq: result.OldestAvailableSeq,
+		ServerTime:         result.ServerTime.UTC().Format(time.RFC3339Nano),
+	})
+}
+
+// ─── Snapshot ──────────────────────────────────────────────────────
+
+// Snapshot handles GET /api/v1/sync/snapshot?table=&after=&limit=.
+//
+// The bootstrap path. A brand-new device has a cursor of zero, and replaying the
+// whole change log for a year of clinic history is enormous and duplicative.
+func (h *Sync) Snapshot(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	table := c.Query("table")
+	if table == "" {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "table is required.", gin.H{"field": "table"})
+		return
+	}
+
+	var after uuid.UUID
+	if raw := c.Query("after"); raw != "" {
+		parsed, err := uuid.Parse(raw)
+		if err != nil {
+			httpx.BadRequest(c, "VALIDATION_FAILED", "after must be a UUID.", nil)
+			return
+		}
+		after = parsed
+	}
+
+	limit, err := intQuery(c, "limit", 0, 0, 1000)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "limit must be a number between 0 and 1000.", nil)
+		return
+	}
+
+	result, err := h.svc.Snapshot(c.Request.Context(), service.SnapshotInput{
+		ActorID: actor.UserID,
+		Table:   table,
+		After:   after,
+		Limit:   int(limit),
+	})
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	httpx.OK(c, gin.H{
+		"table":         result.Table,
+		"rows":          result.Rows,
+		"hasMore":       result.HasMore,
+		"cursorAtStart": result.CursorAtStart,
+	})
+}
+
+// intQuery reads an optional integer query parameter and bounds it.
+func intQuery(c *gin.Context, name string, fallback, min, max int64) (int64, error) {
+	raw := c.Query(name)
+	if raw == "" {
+		return int64(fallback), nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if value < min || value > max {
+		return 0, errOutOfRange
+	}
+	return value, nil
+}
+
+var errOutOfRange = &rangeError{}
+
+type rangeError struct{}
+
+func (e *rangeError) Error() string { return "value out of range" }

@@ -115,3 +115,59 @@ func TestScopeRoleChecks(t *testing.T) {
 		t.Fatal("cashier is not listed and must be refused")
 	}
 }
+
+func TestCamelKey(t *testing.T) {
+	cases := map[string]string{
+		"server_rev":           "serverRev",
+		"first_name":           "firstName",
+		"id":                   "id",
+		"created_by":           "createdBy",
+		"currency_minor_units": "currencyMinorUnits",
+	}
+	for in, want := range cases {
+		if got := camelKey(in); got != want {
+			t.Fatalf("camelKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRedactRowsStripsAndCamelises(t *testing.T) {
+	rows := []map[string]any{{
+		"id":                 "u1",
+		"first_name":         "Amina",
+		"password_hash":      "$argon2id$secret",
+		"failed_login_count": int64(2),
+		"locked_until":       "2026-02-14T09:00:00Z",
+		"server_rev":         int64(7),
+	}}
+
+	got := redactRows("users", rows)
+	if len(got) != 1 {
+		t.Fatalf("expected one row, got %d", len(got))
+	}
+	row := got[0]
+
+	// The wire shape is camelCase.
+	if row["firstName"] != "Amina" {
+		t.Fatalf("firstName missing: %v", row)
+	}
+	if row["serverRev"] != int64(7) {
+		t.Fatalf("serverRev missing or wrong type: %v", row["serverRev"])
+	}
+
+	// Nothing credential-shaped survives, under EITHER naming convention.
+	for _, banned := range []string{"password_hash", "passwordHash", "failed_login_count",
+		"failedLoginCount", "locked_until", "lockedUntil"} {
+		if _, present := row[banned]; present {
+			t.Fatalf("%s leaked into the pull response", banned)
+		}
+	}
+}
+
+func TestRedactRowsHasNoBannedColumnsForUnknownTables(t *testing.T) {
+	// A table with no deny list must still be camelised and passed through.
+	got := redactRows("sync_probe", []map[string]any{{"title": "hello", "server_rev": int64(1)}})
+	if got[0]["title"] != "hello" || got[0]["serverRev"] != int64(1) {
+		t.Fatalf("unexpected passthrough: %v", got[0])
+	}
+}

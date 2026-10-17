@@ -644,7 +644,9 @@ The pull is scoped in two ways:
 
 There is **no facility filter**. In a single-tenant deployment there is exactly one organisation's data in the database, and scoping by a tenant column that does not exist would be meaningless.
 
-**Redaction happens in exactly one place** — the pull response builder. Do not scatter `if table == "users"` checks through the sync package; that is how a hash eventually leaks.
+**Redaction happens in exactly one place** — the pull response builder, implemented as an explicit
+column allowlist per table (`tableColumns` in `service/sync_pull.go`). `password_hash` is never
+selected, so it cannot leak even if a later filter is wrong; the delete pass is defence in depth. Do not scatter `if table == "users"` checks through the sync package; that is how a hash eventually leaks.
 
 ### 7.5 Initial bootstrap
 

@@ -328,3 +328,137 @@ func (r *Sync) CurrentSeq(ctx context.Context, q Querier) (int64, error) {
 	}
 	return seq, nil
 }
+
+// ChangeRow is one entry of the ordered pull manifest.
+type ChangeRow struct {
+	Seq       int64
+	Table     string
+	RowID     uuid.UUID
+	Operation string
+	ServerRev int64
+}
+
+// PullChanges reads the change log after a cursor.
+//
+// MUST be called inside a REPEATABLE READ transaction. `seq` comes from a
+// sequence and is NOT gap-free: a row can be committed with seq 10240 while
+// 10238 and 10239 are still uncommitted. Outside a snapshot, the reader sees
+// 10240, advances the cursor past the gap, and those two rows are lost for ever.
+func (r *Sync) PullChanges(ctx context.Context, q Querier, since int64, limit int) ([]ChangeRow, error) {
+	const sql = `
+        SELECT seq, table_name, row_id, operation, server_rev
+          FROM sync_change_log
+         WHERE seq > $1
+         ORDER BY seq
+         LIMIT $2`
+
+	rows, err := q.Query(ctx, sql, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read change log: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ChangeRow
+	for rows.Next() {
+		var c ChangeRow
+		if err := rows.Scan(&c.Seq, &c.Table, &c.RowID, &c.Operation, &c.ServerRev); err != nil {
+			return nil, fmt.Errorf("scan change: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate changes: %w", err)
+	}
+	return out, nil
+}
+
+// OldestSeq is the lowest sequence still retained.
+//
+// Used to detect a cursor that predates retention: such a device cannot catch up
+// incrementally, and pretending otherwise silently drops everything it missed.
+func (r *Sync) OldestSeq(ctx context.Context, q Querier) (int64, error) {
+	const sql = `SELECT COALESCE(min(seq), 0) FROM sync_change_log`
+
+	var seq int64
+	if err := q.QueryRow(ctx, sql).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("read oldest seq: %w", err)
+	}
+	return seq, nil
+}
+
+// FetchJSONRows returns whole rows as JSON objects, keyed by column name.
+//
+// `columns` is an ALLOWLIST supplied by the service, never interpolated from a
+// request. Selecting an explicit column list is the primary redaction control:
+// password_hash is not selected, so it cannot leak even if a later filter has a
+// bug. Deleting keys afterwards (see the service) is defence in depth.
+func (r *Sync) FetchJSONRows(
+	ctx context.Context,
+	q Querier,
+	table, columns string,
+	ids []uuid.UUID,
+) ([]map[string]any, error) {
+	// []uuid.UUID has no encode plan in QueryExecModeExec (the pooler supports no
+	// prepared statements, so there is no parameter type to infer from). A
+	// []string plus an explicit ::uuid[] cast makes the target type explicit and
+	// the conversion happens in Postgres.
+	idStrings := make([]string, 0, len(ids))
+	for _, id := range ids {
+		idStrings = append(idStrings, id.String())
+	}
+
+	sql := fmt.Sprintf(`
+        SELECT to_jsonb(t)
+          FROM (SELECT %s FROM %s WHERE id = ANY($1::uuid[])) t`, columns, table)
+
+	rows, err := q.Query(ctx, sql, idStrings)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s rows: %w", table, err)
+	}
+	defer rows.Close()
+
+	return scanJSONObjects(rows)
+}
+
+// FetchJSONPage returns one keyset page of a table, ordered by id.
+//
+// Keyset, not OFFSET: an offset scan re-reads everything it skipped, which
+// degrades linearly and is exactly wrong for a bootstrap over a slow link.
+func (r *Sync) FetchJSONPage(
+	ctx context.Context,
+	q Querier,
+	table, columns string,
+	after uuid.UUID,
+	limit int,
+) ([]map[string]any, error) {
+	sql := fmt.Sprintf(`
+        SELECT to_jsonb(t)
+          FROM (SELECT %s FROM %s WHERE id > $1 ORDER BY id LIMIT $2) t`, columns, table)
+
+	rows, err := q.Query(ctx, sql, after, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s page: %w", table, err)
+	}
+	defer rows.Close()
+
+	return scanJSONObjects(rows)
+}
+
+func scanJSONObjects(rows pgx.Rows) ([]map[string]any, error) {
+	var out []map[string]any
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("scan json row: %w", err)
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return nil, fmt.Errorf("decode json row: %w", err)
+		}
+		out = append(out, obj)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate json rows: %w", err)
+	}
+	return out, nil
+}
