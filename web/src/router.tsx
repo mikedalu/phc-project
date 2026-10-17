@@ -20,6 +20,7 @@ import { Route as PharmacyRoute } from '@/routes/pharmacy/index';
 import { Route as WardRoute } from '@/routes/ward/index';
 import { Route as NewReferralRoute } from '@/routes/referrals/new';
 import { Route as PublicReferralRoute } from '@/routes/r/$token';
+import { Route as AdminActivityRoute } from '@/routes/admin/activity';
 
 /**
  * The assembled route tree.
@@ -47,6 +48,7 @@ const routeTree = rootRoute.addChildren([
   WardRoute,
   NewReferralRoute,
   PublicReferralRoute,
+  AdminActivityRoute,
   adminUsersRoute,
   syncProbeRoute,
 ]);

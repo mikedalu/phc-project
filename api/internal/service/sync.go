@@ -597,3 +597,31 @@ func payloadTime(payload map[string]any, field string) *time.Time {
 
 // errUnsupported marks a table with no applier.
 var errUnsupported = errors.New("no applier for table")
+
+// Activity lists recent replicated changes with their actor.
+//
+// The service owns this because the change log is the sync subsystem's record:
+// every write to every synced table, appended by trigger (00019) rather than by
+// memory, which is what makes it trustworthy as an audit view.
+func (s *Sync) Activity(ctx context.Context, actorID uuid.UUID, limit int) ([]repo.Activity, []map[string]any, error) {
+	actor, err := s.users.FindByID(ctx, s.pool, actorID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !domain.HasAnyRole(actor.Roles, domain.RoleAdmin) {
+		return nil, nil, domain.Public(domain.ErrForbidden, "Only an administrator can read the activity log.")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	entries, err := s.sync.Activity(ctx, s.pool, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	conflicts, err := s.sync.RecentConflicts(ctx, s.pool, 20)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entries, conflicts, nil
+}

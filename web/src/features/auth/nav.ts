@@ -4,6 +4,7 @@ import {
   Stethoscope,
   Banknote,
   BedDouble,
+  History,
   Pill,
   FlaskConical,
   Home,
@@ -81,6 +82,7 @@ export const ROLE_NAV: NavEntry[] = [
   },
   { to: '/sync', label: 'Sync status', icon: Activity, roles: ALL_ROLES },
   { to: '/admin/users', label: 'Staff accounts', icon: UserCog, roles: ['admin'] },
+  { to: '/admin/activity', label: 'Activity', icon: History, roles: ['admin'] },
   {
     to: '/dev/sync',
     label: 'Sync probe',

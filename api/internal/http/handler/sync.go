@@ -323,3 +323,36 @@ var errOutOfRange = &rangeError{}
 type rangeError struct{}
 
 func (e *rangeError) Error() string { return "value out of range" }
+
+// Activity handles GET /api/v1/admin/activity.
+func (h *Sync) Activity(c *gin.Context) {
+	actor, ok := middleware.ActorFrom(c)
+	if !ok {
+		httpx.Unauthorized(c, "UNAUTHENTICATED", "Authentication required.")
+		return
+	}
+
+	limit, err := intQuery(c, "limit", 50, 1, 200)
+	if err != nil {
+		httpx.BadRequest(c, "VALIDATION_FAILED", "limit must be between 1 and 200.", nil)
+		return
+	}
+
+	entries, conflicts, err := h.svc.Activity(c.Request.Context(), actor.UserID, int(limit))
+	if err != nil {
+		httpx.Error(c, err)
+		return
+	}
+
+	out := make([]gin.H, 0, len(entries))
+	for _, a := range entries {
+		out = append(out, gin.H{
+			"seq": a.Seq, "table": a.Table, "rowId": a.RowID.String(),
+			"operation": a.Operation, "serverRev": a.ServerRev,
+			"actorName": a.ActorName, "actorStaff": a.ActorStaff,
+			"changedAt": a.ChangedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	httpx.OK(c, gin.H{"activity": out, "conflicts": conflicts})
+}
