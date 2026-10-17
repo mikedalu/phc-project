@@ -37,7 +37,10 @@ const POLL_INTERVAL_MS = 60_000;
  * A timeout converts "stuck for ever" into "failed, try again", which the poll
  * then does 60 s later.
  */
-const SYNC_TIMEOUT_MS = 30_000;
+// 120 s, not 30: a FIRST run includes the per-table snapshot bootstrap, which on
+// a cold Neon takes a few seconds per table. The timeout exists to break a wedge,
+// not to police a slow — but healthy — first sync.
+const SYNC_TIMEOUT_MS = 120_000;
 
 let debounceTimer: number | null = null;
 let running = false;
@@ -120,7 +123,19 @@ async function bootstrapFromScratch(): Promise<void> {
         cursorAtStart: number;
       }>(query);
 
-      cursor = Math.max(cursor, data.cursorAtStart ?? 0);
+      // Take the MINIMUM, never the maximum.
+      //
+      // Each table's snapshot reports the seq at ITS start, and the tables are
+      // read one after another, so the last number is the largest. Adopting the
+      // largest would skip every row written between the first table's snapshot
+      // and the last — which is exactly the window a second device is active in.
+      // The symptom is a patient registered on device A that device B never
+      // receives, with both cursors looking perfectly healthy.
+      //
+      // Replaying a change that was already snapshotted is harmless; skipping
+      // one is not.
+      const start = data.cursorAtStart ?? 0;
+      cursor = cursor === 0 ? start : Math.min(cursor, start);
       await applySnapshotRows(table, data.rows);
 
       if (!data.hasMore) break;

@@ -91,6 +91,12 @@ test.describe('consultation', () => {
 
     await expect(lab.getByText(/Malaria Parasite: Positive/)).toBeVisible({ timeout: 30_000 });
 
+    // Push the result BEFORE the doctor pulls. The lab's own screen updates from
+    // its local database the instant the row is written, so asserting on that
+    // screen says nothing about whether the server has it yet — an earlier
+    // version of this test raced exactly here.
+    await forceSync(lab);
+
     // ── A: the doctor sees the result ──────────────────────────────
     await forceSync(doctor);
     await doctor.goto('/lab');

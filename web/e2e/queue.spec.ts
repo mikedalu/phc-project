@@ -76,17 +76,29 @@ test.describe('queue', () => {
 
     await doctorCard.getByRole('button', { name: 'Open consultation' }).click();
 
-    // The patient leaves the waiting column and enters consultation.
-    await expect(
-      doctor.locator('section').filter({ hasText: 'In consultation' }).getByText(`${firstName} ${surname}`),
-    ).toBeVisible({ timeout: 120_000 });
+    // Opening a consultation now navigates STRAIGHT into it — the doctor's next
+    // action is to write in it, not to admire the queue. This assertion used to
+    // look for the card on the board and failed by design once that landed.
+    await expect(doctor).toHaveURL(/\/consultations\/[0-9a-f-]+$/, { timeout: 30_000 });
+
+    // Back on the board the patient has left the waiting column.
+    await doctor.goto('/queue');
+    const doctorCardAfter = doctor.locator('article').filter({ hasText: `${firstName} ${surname}` });
+    await expect(doctorCardAfter.getByRole('button', { name: 'Close visit' })).toBeVisible({
+      timeout: 60_000,
+    });
 
     // ── A sees the doctor's move after a sync ────────────────────
     await forceSync(nurse);
     await nurse.goto('/queue');
-    await expect(
-      nurse.locator('section').filter({ hasText: 'In consultation' }).getByText(`${firstName} ${surname}`),
-    ).toBeVisible({ timeout: 120_000 });
+    // Assert on the CARD and the action it now offers. Only an in-consultation
+    // visit has "Close visit", so this states the clinical fact rather than a
+    // layout position — and it survives the card being re-rendered as the
+    // board re-sorts.
+    const nurseCardNow = nurse.locator('article').filter({ hasText: `${firstName} ${surname}` });
+    await expect(nurseCardNow.getByRole('button', { name: 'Close visit' })).toBeVisible({
+      timeout: 120_000,
+    });
 
     await contextA.close();
     await contextB.close();

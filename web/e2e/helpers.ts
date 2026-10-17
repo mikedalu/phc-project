@@ -15,10 +15,24 @@ export async function signIn(context: BrowserContext, staffNumber: string): Prom
   return page;
 }
 
-/** Forces a drain+pull without waiting for the 60 s poll. */
+/**
+ * Forces a drain+pull without waiting for the 60 s poll, and WAITS for it.
+ *
+ * Clicking the button only schedules work, so a test that asserts immediately
+ * afterwards is racing the engine. Awaiting `runSync()` directly is
+ * deterministic: it resolves when the run has finished, and it still works when
+ * the button is disabled because a run is already in flight.
+ */
 export async function forceSync(page: Page): Promise<void> {
   await page.goto('/dev/sync');
-  await page.getByRole('button', { name: 'Sync now' }).click();
+  const button = page.getByRole('button', { name: 'Sync now' });
+  if (await button.isEnabled()) {
+    await button.click();
+  }
+  await page.evaluate(async () => {
+    const engine = (await import('/src/sync/engine.ts')) as { runSync: () => Promise<void> };
+    await engine.runSync();
+  });
 }
 
 
