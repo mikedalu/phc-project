@@ -6,24 +6,31 @@ This file tells any AI agent (and any human collaborator) how to work in this re
 
 ## 1. The single most important instruction
 
-**The student writes the code by hand.**
+**The agent writes the code. The student reviews it, runs it, and must be able to defend it.**
 
-Your job is to **guide, explain, and provide code for them to type** — not to make edits yourself.
+This replaced the original "the student types every line by hand" agreement on the student's
+explicit instruction, because hand-typing was the bottleneck against a ten-sprint plan. What did
+**not** change is the reason that rule existed: every line must be explainable in a viva. Writing
+code now carries a matching obligation to explain it.
 
 That means:
 
-- **Do not use the `write` or `edit` tools on anything under `api/` or `web/`.** Present the code in your reply inside a fenced block, with:
+- **Write files directly** under `api/` and `web/`, including migrations.
+- **Explain what you wrote** in the reply: the file, what it does, why it is shaped that way, and
+  the trap it avoids — enough that the student could re-derive it from the explanation.
+- **Do not also paste the whole file into the reply.** Quote only the region that carries the
+  reasoning. Writing it and re-printing it doubles the reading load for no benefit.
+- **Migrations are code.** Same explanation, and they are only done when `up → down → up` has
+  been run.
+- **Never leave the tree broken.** If a change cannot be finished, revert it. A half-applied
+  change is worse than no change.
+- **Verify before claiming done:** `gofmt -l`, `go vet`, `go build`, the test suite, and
+  `pnpm typecheck` for anything touching `web/`. State what was run and what it returned.
+- **Commit** with a Conventional Commit message per `06-GIT-WORKFLOW.md`.
 
-  1. **The exact file path** as a heading, so they know where it goes.
-  2. **A one-to-three sentence explanation of what it does and why**, before the code.
-  3. **The complete code**, unabridged. No `// ...rest of your code` — they cannot type what they cannot see.
-  4. **A brief note after**, if there is a trap, a common mistake, or something to verify.
-
-- **Migrations are code.** They get the same treatment. Never write a migration file directly.
-
-- **The exception:** when the student explicitly asks you to fix a bug, or says "make the change yourself", you may edit files. Ask for confirmation if it is more than a small, well-scoped fix, and prefer showing the diff explanation afterwards.
-
-**Why this matters:** this is a final-year project. The student must be able to explain and defend every line. Code they did not write is a liability in a viva, not an asset.
+**Why this still matters:** this is a final-year project. Code the student cannot explain is a
+liability in a viva, not an asset. The typing burden has moved to you; the explanation burden has
+moved to you as well.
 
 ---
 
@@ -90,7 +97,7 @@ These are the ones that cause silent data corruption when broken. They are not s
 - **Name the trap.** If a piece of code is easy to get subtly wrong, say so and say what the symptom looks like when it is wrong. ("If you forget the outbox append, everything looks fine on this machine and the record never reaches the server.")
 - **Prefer the boring solution.** This project has enough inherent complexity. Reach for the simple option unless there is a real reason not to, and say what the reason is.
 - **Flag scope creep.** If a request drifts outside the scope in `00-ARCHITECTURE.md` §1.2, say so and offer to record it as future work instead.
-- **Give the verification step.** After providing code, tell them how to check it worked — a curl command, a SQL query, a click path.
+- **Give the verification step.** After writing code, say how it was verified — or how the student can re-verify it themselves: a curl command, a SQL query, a click path.
 - **Do not pad.** Short and precise beats long and reassuring.
 
 ---
@@ -99,10 +106,10 @@ These are the ones that cause silent data corruption when broken. They are not s
 
 1. Check `PROJECT-TRACKER.md` for the current sprint and task.
 2. Read the relevant document section before designing anything.
-3. Provide the code for one file at a time, in dependency order, so they can type and test incrementally.
-4. After each meaningful chunk, tell them what to verify.
-5. Remind them to commit (Conventional Commits, per `06-GIT-WORKFLOW.md`).
-6. At the end of a session, update `PROJECT-TRACKER.md` §10 (session log) and the task statuses. **This is the one file you may edit freely** — a tracker nobody updates is worthless, and updating it is bookkeeping rather than authorship.
+3. Work in **vertical slices**: migration → repo → service → handler → route, finishing one endpoint end to end, rather than five half-built layers.
+4. After each slice, run the checks and state what they returned.
+5. Commit at each working slice with a Conventional Commit message (`06-GIT-WORKFLOW.md`), not once at the end of the sprint.
+6. Update `PROJECT-TRACKER.md` §10 (session log), the task statuses, and the decision log whenever a choice is made that would be expensive to reverse.
 
 ---
 
@@ -122,7 +129,7 @@ Stop and ask rather than guessing when:
 - The request would break a rule in §3 above.
 - A schema change is needed that is not in `01-DATA-MODEL.md`.
 - The answer depends on a decision only the student can make (a business rule, a scope call, a deadline trade-off).
-- You are about to write more than ~300 lines in one go — that is usually a sign the task should be split, and a student typing 300 lines without testing is a student debugging 300 lines later.
+- A change would sweep across more than a screen or two of the codebase with no intermediate state where the build still passes. Split it at a point you can verify.
 
 ---
 
