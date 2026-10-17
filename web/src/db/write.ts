@@ -28,7 +28,8 @@ export type SyncableTable =
   | 'encounters'
   | 'vitals'
   | 'diagnoses'
-  | 'lab_orders';
+  | 'lab_orders'
+  | 'lab_results';
 
 interface RowBase extends BaseRow {
   id: string;

@@ -1,7 +1,10 @@
 import { db } from '@/db';
 import type {
+  DiagnosisRow,
   EncounterRow,
   HouseholdRow,
+  LabOrderRow,
+  LabResultRow,
   PatientRow,
   SyncProbeRow,
   VitalsRow,
@@ -120,6 +123,9 @@ const ADAPTERS: Record<string, { table: RowStore; adapt: (raw: Record<string, un
   patients: { table: db.patients as unknown as RowStore, adapt: toPatientRow },
   households: { table: db.households as unknown as RowStore, adapt: toHouseholdRow },
   encounters: { table: db.encounters as unknown as RowStore, adapt: toEncounterRow },
+  lab_orders: { table: db.lab_orders as unknown as RowStore, adapt: toLabOrderRow },
+  lab_results: { table: db.lab_results as unknown as RowStore, adapt: toLabResultRow },
+  diagnoses: { table: db.diagnoses as unknown as RowStore, adapt: toDiagnosisRow },
   vitals: { table: db.vitals as unknown as RowStore, adapt: toVitalsRow },
 };
 
@@ -150,6 +156,18 @@ export function toEncounterRow(raw: Record<string, unknown>): EncounterRow {
 
 export function toVitalsRow(raw: Record<string, unknown>): VitalsRow {
   return toSynced<VitalsRow>(raw);
+}
+
+export function toDiagnosisRow(raw: Record<string, unknown>): DiagnosisRow {
+  return toSynced<DiagnosisRow>(raw);
+}
+
+export function toLabOrderRow(raw: Record<string, unknown>): LabOrderRow {
+  return toSynced<LabOrderRow>(raw);
+}
+
+export function toLabResultRow(raw: Record<string, unknown>): LabResultRow {
+  return toSynced<LabResultRow>(raw);
 }
 
 export function toProbeRow(raw: Record<string, unknown>): SyncProbeRow {

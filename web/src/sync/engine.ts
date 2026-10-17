@@ -53,7 +53,18 @@ export async function runSync(): Promise<void> {
     return;
   }
   if (!navigator.onLine) return;
-  if (!db.isOpen()) return;
+
+  // ── A closed database means "not yet", never "give up" ─────────────────
+  //
+  // The engine is asked to run 1 s after boot, and the initial catch-up can
+  // arrive while Dexie is still opening. Returning silently for that case left
+  // a FRESH device showing an empty app for a whole poll interval (60 s) — no
+  // patients, no queue, looking broken — and the only cure was pressing Sync
+  // now. Re-arming costs one timer and removes that dead minute entirely.
+  if (!db.isOpen()) {
+    requestSync(300);
+    return;
+  }
 
   running = true;
   setEngineState({ syncing: true, lastError: null });

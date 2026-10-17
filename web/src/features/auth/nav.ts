@@ -52,6 +52,12 @@ export const ROLE_NAV: NavEntry[] = [
     // A family is the billing party, so the money roles need it too.
     roles: ['front_desk', 'nurse', 'doctor', 'cashier', 'accountant', 'admin'],
   },
+  {
+    to: '/lab',
+    label: 'Laboratory',
+    icon: FlaskConical,
+    roles: ['lab_scientist', 'doctor', 'nurse', 'admin'],
+  },
   { to: '/sync', label: 'Sync status', icon: Activity, roles: ALL_ROLES },
   { to: '/admin/users', label: 'Staff accounts', icon: UserCog, roles: ['admin'] },
   {

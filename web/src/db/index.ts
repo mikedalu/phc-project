@@ -5,6 +5,7 @@ import type {
   EncounterRow,
   HouseholdRow,
   LabOrderRow,
+  LabResultRow,
   LocalConflict,
   NumberCounter,
   OfflineCredentialRow,
@@ -47,6 +48,7 @@ export const db = new Dexie('phc_records') as Dexie & {
   vitals: EntityTable<VitalsRow, 'id'>;
   diagnoses: EntityTable<DiagnosisRow, 'id'>;
   lab_orders: EntityTable<LabOrderRow, 'id'>;
+  lab_results: EntityTable<LabResultRow, 'id'>;
 
   // ── local-only infrastructure (never synced) ────────────────────────
   outbox: EntityTable<OutboxEntry, 'id'>;
@@ -160,6 +162,16 @@ db.version(5).stores({
  * Diagnoses are append-only on the server, so nothing here is ever updated; the
  * index exists to read a patient's history without scanning.
  */
+/**
+ * v9 — lab results.
+ *
+ * Append-only like vitals: a corrected value is a NEW row, so this store is
+ * never updated after insert and never needs a mutable index.
+ */
+db.version(9).stores({
+  lab_results: 'id, labOrderId, patientId, resultAt, serverRev, syncState',
+});
+
 db.version(8).stores({
   diagnoses: 'id, patientId, encounterId, diagnosedAt, serverRev, syncState',
   lab_orders: 'id, patientId, encounterId, orderNumber, status, updatedAt, serverRev, syncState',

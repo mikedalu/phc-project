@@ -128,6 +128,24 @@ export interface LabOrderRow extends BaseRow {
   completedAt: string | null;
 }
 
+/**
+ * A measured parameter. APPEND-ONLY: a corrected value is a NEW result, because
+ * the original measurement is what the doctor acted on.
+ */
+export interface LabResultRow extends BaseRow {
+  labOrderId: string;
+  patientId: string;
+  parameterName: string;
+  valueText: string | null;
+  valueNumeric: number | null;
+  unit: string | null;
+  referenceRange: string | null;
+  abnormalFlag: 'normal' | 'low' | 'high' | 'critical_low' | 'critical_high' | null;
+  resultAt: string;
+  resultBy: string;
+  remarks: string | null;
+}
+
 export interface VitalsRow extends BaseRow {
   patientId: string;
   encounterId: string | null;
