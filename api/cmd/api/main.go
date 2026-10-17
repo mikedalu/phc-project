@@ -88,7 +88,7 @@ func run() error {
 		return fmt.Errorf("jwt issuer: %w", err)
 	}
 
-	authSvc := service.NewAuth(pool, issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	authSvc := service.NewAuth(pool, issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL, cfg.OfflineGrace)
 	authHandler := handler.NewAuth(authSvc)
 
 	deviceSvc := service.NewDevices(pool)

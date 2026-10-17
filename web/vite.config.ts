@@ -66,6 +66,17 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // /health and /ready live at the ROOT, not under /api/v1 — they are
+      // Cloud Run's probe endpoints. Without these two entries the dashboard's
+      // infrastructure checks 404 against the dev server and look like an outage.
+      '/health': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/ready': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 

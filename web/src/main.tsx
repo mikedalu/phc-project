@@ -4,6 +4,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
 import { router } from '@/router';
 import { openDatabase } from '@/db';
+import { hydrateSession, revalidateSession } from '@/features/auth/session';
 import './app/main.css';
 
 /**
@@ -47,6 +48,17 @@ async function bootstrap(): Promise<void> {
         </p>
       </div>`;
     return;
+  }
+
+  // Restore the session BEFORE rendering. A route guard that runs against a
+  // still-loading store would redirect a signed-in user to /login on every
+  // reload — a flash that looks like a bug because it is one.
+  await hydrateSession();
+
+  // Best-effort background revalidation: picks up a revoked role or device.
+  // Not awaited — the app must render whether or not the server answers.
+  if (navigator.onLine) {
+    void revalidateSession();
   }
 
   createRoot(rootElement).render(

@@ -209,6 +209,37 @@ export interface DeviceKeyRow {
   createdAt: string;
 }
 
+/**
+ * The signed-in session, as it survives a reload. ONE row, `key = 'current'`.
+ *
+ * ═══ WHAT IS DELIBERATELY ABSENT ═══
+ * The ACCESS token. It lives in memory only, because it is worthless after
+ * fifteen minutes and writing it down would put a bearer credential at rest for
+ * no benefit. The REFRESH token is here because offline operation requires it:
+ * the device must be able to trade it for an access token when the network comes
+ * back, and that trade cannot happen if the token was lost on reload.
+ *
+ * ═══ THE OFFLINE DEADLINE IS SERVER-ISSUED ═══
+ * `offlineGraceExpiresAt` comes from the API, never from this device's clock.
+ * A device that rolls its clock back can only make the local check stricter,
+ * never looser — which is the whole point (docs/05-SECURITY.md §3.5).
+ */
+export interface SessionRow {
+  key: 'current';
+  userId: string;
+  staffNumber: string;
+  displayName: string;
+  roles: string[];
+  refreshToken: string;
+  /** The JWT's device_id claim; also the signing device. */
+  deviceId: string;
+  /** ISO-8601, from the server. */
+  offlineGraceExpiresAt: string;
+  /** ISO-8601. When this device last successfully authenticated online. */
+  lastOnlineAuthAt: string;
+  sessionId: string;
+}
+
 /** Generates a time-ordered UUID. The ONLY way IDs are created in this app. */
 export function newId(): string {
   return uuidv7();

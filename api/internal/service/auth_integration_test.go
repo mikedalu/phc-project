@@ -99,7 +99,7 @@ func newAuthFixture(t *testing.T, pool *pgxpool.Pool) (*service.Auth, uuid.UUID)
 		t.Fatal(err)
 	}
 
-	auth := service.NewAuth(pool, iss, 15*time.Minute, 30*24*time.Hour)
+	auth := service.NewAuth(pool, iss, 15*time.Minute, 30*24*time.Hour, 7*24*time.Hour)
 
 	// Make the account discoverable by staff number in Login's lookup.
 	t.Cleanup(func() {
@@ -493,7 +493,7 @@ func TestSeededAdminCanLogIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	auth := service.NewAuth(pool, iss, 15*time.Minute, 30*24*time.Hour)
+	auth := service.NewAuth(pool, iss, 15*time.Minute, 30*24*time.Hour, 7*24*time.Hour)
 
 	// By staff number, exactly as documented in migration 00004.
 	sess, err := auth.Login(context.Background(), service.LoginInput{

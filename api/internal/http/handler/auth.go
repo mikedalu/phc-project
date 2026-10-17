@@ -9,6 +9,9 @@
 package handler
 
 import (
+	"time"
+
+	"github.com/google/uuid"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -87,6 +90,10 @@ type sessionDTO struct {
 	User         userDTO   `json:"user"`
 	Device       deviceDTO `json:"device"`
 	SessionID    string    `json:"sessionId"`
+	// OfflineGraceExpiresAt is when this device must next authenticate online.
+	// Sent on login AND refresh so a device that has been offline for days gets a
+	// new deadline the moment it reconnects.
+	OfflineGraceExpiresAt string `json:"offlineGraceExpiresAt"`
 }
 
 type deviceDTO struct {
@@ -96,12 +103,13 @@ type deviceDTO struct {
 
 func toSessionDTO(s *service.Session) sessionDTO {
 	return sessionDTO{
-		AccessToken:  s.AccessToken,
-		RefreshToken: s.RefreshToken,
-		ExpiresIn:    int(s.ExpiresIn.Seconds()),
-		User:         toUserDTO(s.User),
-		Device:       deviceDTO{ID: s.DeviceID.String()},
-		SessionID:    s.SessionID.String(),
+		AccessToken:           s.AccessToken,
+		RefreshToken:          s.RefreshToken,
+		ExpiresIn:             int(s.ExpiresIn.Seconds()),
+		User:                  toUserDTO(s.User),
+		Device:                deviceDTO{ID: s.DeviceID.String()},
+		SessionID:             s.SessionID.String(),
+		OfflineGraceExpiresAt: s.OfflineUntil.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -187,7 +195,9 @@ func (h *Auth) Logout(c *gin.Context) {
 //
 // Lets a client confirm its token is still good, and re-read the user's roles
 // after being offline. The roles returned here are CURRENT, unlike the token's;
-// this is where an offline device catches up on a revoked capability.
+// this is where an offline device catches up on a revoked capability. The device
+// status and a fresh offline deadline are included so one request answers every
+// question a reconnecting client has.
 func (h *Auth) Session(c *gin.Context) {
 	actor, ok := middleware.ActorFrom(c)
 	if !ok {
@@ -195,15 +205,31 @@ func (h *Auth) Session(c *gin.Context) {
 		return
 	}
 
-	// The service re-reads the user with roles; the token is not trusted for
-	// this.
-	user, err := h.svc.CurrentUser(c.Request.Context(), actor.UserID)
+	details, err := h.svc.SessionDetails(c.Request.Context(), actor.UserID, actor.DeviceID)
 	if err != nil {
 		httpx.Error(c, err)
 		return
 	}
 
-	httpx.OK(c, toUserDTO(user))
+	var deviceID string
+	if actor.DeviceID != uuid.Nil {
+		deviceID = actor.DeviceID.String()
+	}
+
+	httpx.OK(c, gin.H{
+		"user":                  toUserDTO(details.User),
+		"roles":                 roleStrings(details.Roles),
+		"device":                gin.H{"id": deviceID, "revoked": details.DeviceRevoked},
+		"offlineGraceExpiresAt": details.OfflineUntil.UTC().Format(time.RFC3339),
+	})
+}
+
+func roleStrings(roles []domain.Role) []string {
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, r.String())
+	}
+	return out
 }
 
 // ChangePassword handles POST /api/v1/auth/change-password.

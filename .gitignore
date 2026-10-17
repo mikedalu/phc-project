@@ -71,3 +71,6 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 .turbo/
+
+# TypeScript incremental build output — regenerated on every tsc run
+*.tsbuildinfo

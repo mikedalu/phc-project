@@ -1,6 +1,7 @@
 import { createRouter } from '@tanstack/react-router';
 import { Route as rootRoute } from '@/routes/__root';
 import { Route as indexRoute } from '@/routes/index';
+import { Route as loginRoute } from '@/routes/login';
 import { Route as syncRoute } from '@/routes/sync';
 import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
 
@@ -12,6 +13,7 @@ import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
  * merge conflicts stay trivial.
  */
 const routeTree = rootRoute.addChildren([
+  loginRoute,
   indexRoute,
   syncRoute,
   PatientsRoute,

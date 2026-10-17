@@ -7,6 +7,7 @@ import type {
   NumberCounter,
   OutboxEntry,
   PatientRow,
+  SessionRow,
   SyncMeta,
   VitalsRow,
 } from './types';
@@ -47,6 +48,7 @@ export const db = new Dexie('phc_records') as Dexie & {
   conflicts: EntityTable<LocalConflict, 'id'>;
   numberCounters: EntityTable<NumberCounter, 'key'>;
   deviceKeys: EntityTable<DeviceKeyRow, 'id'>;
+  session: EntityTable<SessionRow, 'key'>;
 };
 
 db.version(1).stores({
@@ -96,6 +98,17 @@ db.version(1).stores({
  */
 db.version(2).stores({
   deviceKeys: 'id, deviceId',
+});
+
+/**
+ * v3 — the signed-in session.
+ *
+ * Keyed by the constant 'current': one browser profile has one active session at
+ * a time. The refresh token is stored here because offline operation needs it —
+ * see the note on SessionRow for why the ACCESS token is not.
+ */
+db.version(3).stores({
+  session: 'key',
 });
 
 /**

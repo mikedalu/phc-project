@@ -54,30 +54,41 @@ type Auth struct {
 	byAcct  *ratelimit.Limiter
 	byIP    *ratelimit.Limiter
 
-	accessTTL  time.Duration
-	refreshTTL time.Duration
+	accessTTL    time.Duration
+	refreshTTL   time.Duration
+	offlineGrace time.Duration
 
 	// now is injectable so lockout and expiry are testable without sleeping.
 	now func() time.Time
 }
 
 // NewAuth wires the auth service.
+//
+// offlineGrace is the window in which a device may keep working offline after
+// its last successful online authentication (OFFLINE_GRACE_PERIOD, default 7
+// days). It is NOT the access-token TTL: conflating the two would expire the
+// offline window after fifteen minutes, which is the exact bug this parameter
+// exists to prevent.
 func NewAuth(
 	pool *pgxpool.Pool,
 	issuer *token.Issuer,
-	accessTTL, refreshTTL time.Duration,
+	accessTTL, refreshTTL, offlineGrace time.Duration,
 ) *Auth {
+	if offlineGrace <= 0 {
+		offlineGrace = accessTTL
+	}
 	return &Auth{
-		pool:       pool,
-		users:      repo.NewUsers(pool),
-		tokens:     repo.NewRefreshTokens(),
-		devices:    repo.NewDevices(),
-		issuer:     issuer,
-		byAcct:     ratelimit.New(LoginAttemptsPerAccount, LoginWindow),
-		byIP:       ratelimit.New(LoginAttemptsPerIP, LoginWindow),
-		accessTTL:  accessTTL,
-		refreshTTL: refreshTTL,
-		now:        time.Now,
+		pool:         pool,
+		users:        repo.NewUsers(pool),
+		tokens:       repo.NewRefreshTokens(),
+		devices:      repo.NewDevices(),
+		issuer:       issuer,
+		byAcct:       ratelimit.New(LoginAttemptsPerAccount, LoginWindow),
+		byIP:         ratelimit.New(LoginAttemptsPerIP, LoginWindow),
+		accessTTL:    accessTTL,
+		refreshTTL:   refreshTTL,
+		offlineGrace: offlineGrace,
+		now:          time.Now,
 	}
 }
 
@@ -323,9 +334,11 @@ func (s *Auth) issueSession(
 		User:         user,
 		DeviceID:     deviceID,
 		SessionID:    familyID,
-		// The device may keep working offline until this moment. See
-		// docs/00-ARCHITECTURE.md §5.1.
-		OfflineUntil: now.Add(s.accessTTL),
+		// The device may keep working offline until this moment. It is the GRACE
+		// WINDOW, not the access-token lifetime: using accessTTL here would make
+		// every device read-only after 15 minutes without a network, which is the
+		// opposite of offline-first. See docs/00-ARCHITECTURE.md §5.1.
+		OfflineUntil: now.Add(s.offlineGrace),
 	}, nil
 }
 
@@ -374,6 +387,55 @@ func (s *Auth) CurrentUser(ctx context.Context, userID uuid.UUID) (*domain.User,
 		return nil, domain.Public(domain.ErrForbidden, "This account is disabled. Contact an administrator.")
 	}
 	return user, nil
+}
+
+// SessionDetails is what GET /auth/session reports.
+//
+// Deliberately not the domain types: the endpoint must tell a client three
+// separate things — who you are NOW, what this device's status is, and how long
+// you may keep working offline — and a client that has been offline for three
+// days needs all three to decide whether to keep going.
+type SessionDetails struct {
+	User *domain.User
+	// Roles are re-read from the database, unlike the token's single role.
+	Roles []domain.Role
+	// DeviceRevoked is true when the device is revoked OR unknown. The client's
+	// response to both is the same: stop syncing and re-enrol.
+	DeviceRevoked bool
+	// OfflineUntil is re-issued on every successful online contact, from the
+	// server's clock. The client must never extend it itself.
+	OfflineUntil time.Time
+}
+
+// SessionDetails re-reads the user, their roles, and the device's status.
+func (s *Auth) SessionDetails(ctx context.Context, userID, deviceID uuid.UUID) (*SessionDetails, error) {
+	user, err := s.CurrentUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// An unknown device is treated as revoked: a token naming a device row that
+	// does not exist is either a stale deployment or a forgery, and neither
+	// should be told "yes, carry on".
+	revoked := true
+	if deviceID != uuid.Nil {
+		device, derr := s.devices.FindByID(ctx, s.pool, deviceID)
+		switch {
+		case derr == nil:
+			revoked = device.IsRevoked()
+		case errors.Is(derr, domain.ErrNotFound):
+			revoked = true
+		default:
+			return nil, derr
+		}
+	}
+
+	return &SessionDetails{
+		User:          user,
+		Roles:         user.Roles,
+		DeviceRevoked: revoked,
+		OfflineUntil:  s.now().Add(s.offlineGrace),
+	}, nil
 }
 
 // ChangePasswordInput is a password-change request.
