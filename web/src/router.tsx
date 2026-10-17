@@ -6,7 +6,10 @@ import { Route as sessionExpiredRoute } from '@/routes/session-expired';
 import { Route as adminUsersRoute } from '@/routes/admin/users';
 import { Route as syncProbeRoute } from '@/routes/dev/sync';
 import { Route as syncRoute } from '@/routes/sync';
-import { PatientsRoute, QueueRoute } from '@/routes/placeholders';
+import { QueueRoute } from '@/routes/placeholders';
+import { Route as PatientListRoute } from '@/routes/patients/index';
+import { Route as PatientNewRoute } from '@/routes/patients/new';
+import { Route as PatientProfileRoute } from '@/routes/patients/$id';
 
 /**
  * The assembled route tree.
@@ -20,8 +23,10 @@ const routeTree = rootRoute.addChildren([
   sessionExpiredRoute,
   indexRoute,
   syncRoute,
-  PatientsRoute,
   QueueRoute,
+  PatientListRoute,
+  PatientNewRoute,
+  PatientProfileRoute,
   adminUsersRoute,
   syncProbeRoute,
 ]);

@@ -355,10 +355,14 @@ func buildRouter(
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
 
+		// The facility CODE is what prefixes every document number, and an
+		// offline device must be able to generate `URPHC/PAT/2026/…` with no
+		// network. It is configuration, not a secret.
 		var facilityCount int
+		var facilityCode string
 		err := pool.QueryRow(ctx,
-			`SELECT count(*) FROM facilities WHERE deleted_at IS NULL`,
-		).Scan(&facilityCount)
+			`SELECT count(*), COALESCE(max(code), '') FROM facilities WHERE deleted_at IS NULL`,
+		).Scan(&facilityCount, &facilityCode)
 		if err != nil {
 			log.Error().Err(err).
 				Str("request_id", httpx.GetRequestID(c)).
@@ -376,6 +380,7 @@ func buildRouter(
 			"minClientVersion":        "0.1.0",
 			"serverVersion":           buildVersion,
 			"facilityCount":           facilityCount,
+			"facilityCode":            facilityCode,
 		})
 	})
 

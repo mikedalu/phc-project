@@ -162,7 +162,9 @@ export type SyncMetaKey =
   /** Cached copy of the server's OFFLINE_POLICY, so the rule works offline. */
   | 'offlinePolicy'
   /** Set when the server says our cursor is older than its retention window. */
-  | 'fullResyncRequired';
+  | 'fullResyncRequired'
+  /** Facility code from /meta, cached so offline numbering works. */
+  | 'facilityCode';
 
 export interface SyncMeta {
   key: SyncMetaKey;

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, Ref } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/cn';
 
@@ -30,7 +30,10 @@ const input = cva(
 
 export interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>,
-    VariantProps<typeof input> {}
+    VariantProps<typeof input> {
+  /** React 19 passes ref as a normal prop; the interface has to admit it. */
+  ref?: Ref<HTMLInputElement>;
+}
 
 export function Input({ className, size, ...props }: InputProps) {
   return <input className={cn(input({ size }), className)} {...props} />;

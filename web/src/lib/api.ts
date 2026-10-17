@@ -373,10 +373,15 @@ export interface MetaResponse {
   minClientVersion: string;
   serverVersion: string;
   facilityCount: number;
+  /** Prefixes every document number, e.g. DEMO in DEMO/PAT/2026/… */
+  facilityCode: string;
 }
 
 export function fetchMeta(): Promise<ApiResult<MetaResponse>> {
-  return apiGet<MetaResponse>('/meta');
+  // skipAuth is REQUIRED, not cosmetic. Without it, apiFetch's proactive
+  // refresh runs while signed out, the refresh reports "offline", and a public
+  // endpoint fails — which is how the facility code silently failed to cache.
+  return apiGet<MetaResponse>('/meta', { skipAuth: true });
 }
 
 /** GET /health — liveness. Never touches the database. */
@@ -387,7 +392,7 @@ export interface HealthResponse {
 }
 
 export function fetchHealth(): Promise<ApiResult<HealthResponse>> {
-  return apiGet<HealthResponse>('/health', { basePath: ROOT_BASE });
+  return apiGet<HealthResponse>('/health', { basePath: ROOT_BASE, skipAuth: true });
 }
 
 /** GET /ready — readiness. DOES ping the database. */
@@ -397,5 +402,5 @@ export interface ReadyResponse {
 }
 
 export function fetchReady(): Promise<ApiResult<ReadyResponse>> {
-  return apiGet<ReadyResponse>('/ready', { basePath: ROOT_BASE });
+  return apiGet<ReadyResponse>('/ready', { basePath: ROOT_BASE, skipAuth: true });
 }

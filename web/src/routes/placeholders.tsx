@@ -37,18 +37,6 @@ function Stub({ title, sprint, description }: StubProps) {
   );
 }
 
-export const PatientsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/patients',
-  component: () => (
-    <Stub
-      title="Patients"
-      sprint="Sprint 3"
-      description="Patient registration (individual and family), the patient list, Ctrl+K search, duplicate detection, and the household billing view. Depends on the sync engine from Sprint 2, because a registry that cannot save offline is not worth building."
-    />
-  ),
-});
-
 export const QueueRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/queue',

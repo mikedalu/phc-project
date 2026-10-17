@@ -142,7 +142,15 @@ async function applyResults(due: OutboxEntry[], response: PushResponse): Promise
   const byId = new Map(response.results.map((r) => [r.operationId, r]));
   const now = Date.now();
 
-  await db.transaction('rw', db.outbox, db.sync_probe, db.conflicts, async () => {
+  // EVERY synced table must be in the transaction scope, not just the probe.
+  //
+  // Dexie throws NotFoundError on a store that is not part of the enclosing
+  // transaction, so marking a patient synced outside this list silently failed
+  // AFTER the outbox row was already marked done — the work was sent, the row
+  // still said "never sent", and nothing reconciled them.
+  const syncedTables = [db.sync_probe, db.patients, db.households];
+
+  await db.transaction('rw', [db.outbox, db.conflicts, ...syncedTables], async () => {
     for (const entry of due) {
       const result = byId.get(entry.id);
       if (!result) {
@@ -224,11 +232,19 @@ async function applyResults(due: OutboxEntry[], response: PushResponse): Promise
 async function markDone(entry: OutboxEntry, serverRev: number | undefined): Promise<void> {
   await db.outbox.update(entry.id, { status: 'done' });
 
-  if (entry.entityTable === 'sync_probe' && typeof serverRev === 'number') {
-    const row = await db.sync_probe.get(entry.rowId);
-    if (row) {
-      await db.sync_probe.put({ ...row, serverRev, syncState: 'synced' });
-    }
+  if (typeof serverRev !== 'number') return;
+
+  // GENERIC on purpose. Hard-coding 'sync_probe' here marked the outbox done
+  // while leaving the patient row at serverRev 0 / pending for ever: the outbox
+  // said "sent", the row said "never sent", and nothing reconciled them.
+  const table = (db as unknown as Record<string, { get: Function; put: Function }>)[
+    entry.entityTable
+  ];
+  if (!table) return;
+
+  const row = (await table.get(entry.rowId)) as Record<string, unknown> | undefined;
+  if (row) {
+    await table.put({ ...row, serverRev, syncState: 'synced' });
   }
 }
 

@@ -50,6 +50,13 @@ export async function primeOfflinePolicy(): Promise<void> {
     const { data } = await fetchMeta();
     currentPolicy = data.offlinePolicy;
     await db.syncMeta.put({ key: POLICY_KEY, value: data.offlinePolicy });
+
+    // Cached alongside the policy for the same reason: document numbers are
+    // generated ON THE DEVICE, and `DEMO/PAT/2026/…` needs the facility code
+    // while there is no network to ask for it.
+    if (data.facilityCode) {
+      await db.syncMeta.put({ key: 'facilityCode', value: data.facilityCode });
+    }
   } catch {
     // Offline or a slow cold start. The cached value stands.
   }

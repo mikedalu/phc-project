@@ -138,6 +138,27 @@ db.version(5).stores({
 });
 
 /**
+ * v6 — the patient registry and households.
+ *
+ * Note what is NOT here: no Dexie foreign keys. Dexie has no real FK support,
+ * and pretending otherwise creates ordering constraints during bootstrap that
+ * the server already enforces. Indexes only.
+ */
+db.version(6).stores({
+  patients: [
+    'id',
+    'patientNumber',
+    'householdId',
+    '[surname+firstName]',
+    'phone',
+    'updatedAt',
+    'serverRev',
+    'syncState',
+  ].join(', '),
+  households: 'id, familyNumber, familyName, updatedAt, serverRev, syncState',
+});
+
+/**
  * Opens the database.
  *
  * Call once during app bootstrap and await it before rendering screens that
