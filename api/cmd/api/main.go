@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -27,7 +28,9 @@ import (
 	"github.com/mikedalu/phc-records/api/internal/http/httpx"
 	"github.com/mikedalu/phc-records/api/internal/http/middleware"
 	"github.com/mikedalu/phc-records/api/internal/platform/db"
+	"github.com/mikedalu/phc-records/api/internal/platform/nonce"
 	"github.com/mikedalu/phc-records/api/internal/platform/token"
+	"github.com/mikedalu/phc-records/api/internal/repo"
 	"github.com/mikedalu/phc-records/api/internal/service"
 )
 
@@ -97,7 +100,10 @@ func run() error {
 	userSvc := service.NewUsers(pool)
 	userHandler := handler.NewUsers(userSvc)
 
-	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, issuer)
+	syncSvc := service.NewSync(pool, cfg.SyncMaxBatchSize)
+	syncHandler := handler.NewSync(syncSvc)
+
+	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -157,7 +163,7 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, issuer *token.Issuer) *gin.Engine {
+func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, syncHandler *handler.Sync, issuer *token.Issuer) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -260,6 +266,27 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 		admin.POST("/devices/:id/revoke", deviceHandler.Revoke)
 		admin.GET("/users", userHandler.List)
 		admin.PATCH("/users/:id", userHandler.Update)
+	}
+
+	// ─── sync ──────────────────────────────────────────────────────
+	//
+	// The signature middleware is mounted HERE and nowhere else, in this exact
+	// order: the JWT identifies the user and the device, CaptureBody preserves
+	// the raw bytes that were signed, and DeviceSignature proves the request
+	// came from that device. Pull will be JWT-only (see 05-SECURITY.md §4.4.1).
+	deviceLookup := func(ctx context.Context, id uuid.UUID) (*domain.Device, error) {
+		return repo.NewDevices().FindByID(ctx, pool, id)
+	}
+	nonceCache := nonce.NewMemory()
+
+	syncGroup := v1.Group("/sync")
+	syncGroup.Use(
+		middleware.RequireAuth(issuer),
+		httpx.CaptureBody(int64(cfg.SyncMaxBatchBytes)),
+		middleware.DeviceSignature(deviceLookup, nonceCache, middleware.MaxDeviceSkew),
+	)
+	{
+		syncGroup.POST("/push", syncHandler.Push)
 	}
 
 	// /meta is what the client calls at boot: everything it needs to configure

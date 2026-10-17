@@ -393,6 +393,12 @@ Execute inside **one database transaction**:
 
 **Per-operation statuses — the client must handle all six:**
 
+> **Replays are reported as `duplicate`, not as the stored `applied`.** A batch that arrives twice is
+> answered from `sync_operations` (the batch id is the primary key), and its stored outcomes are
+> rewritten to `duplicate` with `reason: "batch_replayed"`. Returning `applied` would tell a client
+> that a row moved twice, which is exactly the kind of thing that corrupts a cursor later. An
+> operation replayed inside a *new* batch returns `duplicate` with `reason: "already_applied"`.
+
 | Status | Meaning | Client action |
 |---|---|---|
 | `applied` | Written, `serverRev` assigned | Mark outbox `done`; record `serverRev` on the local row |

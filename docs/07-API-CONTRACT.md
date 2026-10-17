@@ -387,9 +387,23 @@ transaction. Otherwise a dismissed employee keeps working for up to thirty days.
 Full protocol in `02-SYNC-PROTOCOL.md`. Endpoints and contracts only here.
 
 ### `POST /sync/push` 🔐 + signed
-Batched outbox drain. Max 200 operations or 1 MB.
+Batched outbox drain. Max 200 operations (`SYNC_MAX_BATCH_SIZE`) or 1 MB.
 
-Request/response shapes: `02-SYNC-PROTOCOL.md` §5.
+Request/response shapes: `02-SYNC-PROTOCOL.md` §5. The response is wrapped in the standard
+envelope, so the client reads `data.results`, `data.summary`, `data.nextCursor`.
+
+| Situation | Status | `code` |
+|---|---|---|
+| Missing/expired device headers | 401 | `DEVICE_SIGNATURE_MISSING`, `CLOCK_SKEW`, `DEVICE_SIGNATURE_INVALID` |
+| Device revoked or unknown | 403 | `DEVICE_REVOKED` |
+| Device has no public key yet | 403 | `DEVICE_KEY_NOT_REGISTERED` |
+| Replayed nonce | 409 | `DEVICE_NONCE_REPLAYED` |
+| Malformed envelope, bad ids, batch too large | 400 | `VALIDATION_FAILED` |
+| Body over 1 MB | 413 | `PAYLOAD_TOO_LARGE` |
+
+Per-operation failures are **not** HTTP errors: the batch succeeds and each rejected operation is
+reported in `results[]` with `status: "rejected"` and a `reason` (`forbidden`, `unknown_table`,
+`validation:<field>`, `stale_reference`).
 
 ### `GET /sync/pull` 🔐
 

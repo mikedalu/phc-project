@@ -184,6 +184,7 @@ That last one is worth stating plainly in your report: **the tenant column was t
 | 27 | `referral_access_log` | 🔒 | 8 | Every view of a public referral |
 | 28 | `audit_logs` | 🔒 | 6 | Append-only audit trail |
 | 29 | `sync_table_scopes` | 🔒 config | 2 | Which tables sync, to which roles |
+| 29b | `sync_probe` | 🧪 dev | 2 | Development probe table; not clinical, not deployed long-term |
 | 30 | `sync_batches` | 🔒 | 2 | Applied push batches (idempotency) |
 | 31 | `sync_operations` | 🔒 | 2 | Applied individual operations (idempotency) |
 | 32 | `sync_change_log` | 🔒 | 2 | Server change sequence for pull |
@@ -1032,6 +1033,18 @@ Even though the agreed policy is **automatic** (LWW / append-only), every overwr
 | `updated_at` | TIMESTAMPTZ NOT NULL DEFAULT now() | |
 
 This is what makes the admin's "Device health" screen possible, and it is how you diagnose a workstation that has stopped syncing.
+
+### 9.7 `sync_probe` — 🧪 development only
+
+Not clinical data. Three columns (`id`, `title`, `body`) plus the nine sync columns, and a
+`sync_table_scopes` row granting every role read and write.
+
+**Why it exists.** Sprint 2 must prove the engine before any clinical table exists — that ordering
+is the whole point of the sprint. The probe is the smallest thing two browsers can both write,
+edit and delete while the demo shows convergence, LWW and replay. It is what `/dev/sync` writes to.
+
+It is in the schema, rather than conjured in a developer's head, so the demo is reproducible.
+Nothing references it, and dropping it later is a one-migration change.
 
 ---
 
