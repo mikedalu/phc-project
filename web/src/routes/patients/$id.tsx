@@ -7,6 +7,7 @@ import { db } from '@/db';
 import { Button } from '@/components/ui/button';
 import { startVisit } from '@/features/queue/write';
 import { toast } from 'sonner';
+import { useLiveQuery as useVitalsQuery } from 'dexie-react-hooks';
 
 /**
  * Patient profile.
@@ -116,9 +117,90 @@ function PatientProfilePage() {
         </dl>
       </section>
 
-      <p className="text-xs text-text-muted">
-        Encounters, vitals and prescription history arrive with the queue in Sprint 4.
-      </p>
+      <VitalsTrend patientId={patient.id} />
     </div>
+  );
+}
+
+
+/**
+ * The vitals trend.
+ *
+ * A single reading is a number; five readings are a chart, and the chart is what
+ * a doctor actually reads. Rows are newest first, and every row is a separate
+ * observation — vitals are append-only, so nothing here was ever overwritten.
+ */
+function VitalsTrend({ patientId }: { patientId: string }) {
+  const readings = useVitalsQuery(
+    () => db.vitals.where('patientId').equals(patientId).toArray(),
+    [patientId],
+    [],
+  );
+
+  const sorted = [...readings].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)).slice(0, 10);
+
+  return (
+    <section className="rounded-md border border-border bg-surface">
+      <div className="flex items-center justify-between border-b border-border bg-surface-sunken px-4 py-2">
+        <h2 className="text-sm font-medium text-text">Vitals</h2>
+        <span className="text-xs text-text-muted">
+          {readings.length} reading{readings.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-text-muted">
+          No readings yet. Record them from the queue.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <caption className="sr-only">Recent vitals for this patient</caption>
+            <thead>
+              <tr className="border-b border-border text-xs uppercase tracking-wide text-text-muted">
+                <th scope="col" className="px-3 py-2">When</th>
+                <th scope="col" className="px-3 py-2">BP</th>
+                <th scope="col" className="px-3 py-2">Temp</th>
+                <th scope="col" className="px-3 py-2">Pulse</th>
+                <th scope="col" className="px-3 py-2">Resp</th>
+                <th scope="col" className="px-3 py-2">SpO₂</th>
+                <th scope="col" className="px-3 py-2">Weight</th>
+                <th scope="col" className="px-3 py-2">BMI</th>
+                <th scope="col" className="px-3 py-2">State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((v) => (
+                <tr key={v.id} className="border-b border-border last:border-b-0">
+                  <td className="px-3 py-2 text-xs text-text-muted">
+                    {new Date(v.recordedAt).toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 tnum">
+                    {v.bpSystolic ?? '—'}/{v.bpDiastolic ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 tnum">{v.temperatureC ?? '—'}</td>
+                  <td className="px-3 py-2 tnum">{v.pulseRate ?? '—'}</td>
+                  <td className="px-3 py-2 tnum">{v.respiratoryRate ?? '—'}</td>
+                  <td className="px-3 py-2 tnum">{v.spo2 ?? '—'}</td>
+                  <td className="px-3 py-2 tnum">{v.weightKg ?? '—'}</td>
+                  <td className="px-3 py-2 tnum">{v.bmi ?? '—'}</td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={
+                        v.syncState === 'synced'
+                          ? 'rounded-xs bg-success-soft px-1.5 py-0.5 text-xs text-success-fg'
+                          : 'rounded-xs bg-primary-soft px-1.5 py-0.5 text-xs text-primary-fg'
+                      }
+                    >
+                      {v.syncState}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
