@@ -103,7 +103,10 @@ func run() error {
 	syncSvc := service.NewSync(pool, cfg.SyncMaxBatchSize)
 	syncHandler := handler.NewSync(syncSvc)
 
-	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler, issuer)
+	patientSvc := service.NewPatients(pool)
+	patientHandler := handler.NewPatients(patientSvc)
+
+	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler, patientHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -163,7 +166,7 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, syncHandler *handler.Sync, issuer *token.Issuer) *gin.Engine {
+func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, userHandler *handler.Users, syncHandler *handler.Sync, patientHandler *handler.Patients, issuer *token.Issuer) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -255,6 +258,28 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 		// earns the right to sign sync pushes; the service refuses a key swap on
 		// a device that already has one.
 		authed.POST("/devices", deviceHandler.Register)
+	}
+
+	// ─── patient registry ──────────────────────────────────────────
+	//
+	// Reads are open to every signed-in role: patient lookup happens at every
+	// station. Writes are gated here AND re-checked in the service, because the
+	// token's role can be fifteen minutes stale.
+	patients := v1.Group("/patients")
+	patients.Use(middleware.RequireAuth(issuer))
+	{
+		patients.GET("", patientHandler.Search)
+		patients.GET("/:id", patientHandler.Get)
+	}
+
+	patientWrites := v1.Group("/patients")
+	patientWrites.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleFrontDesk, domain.RoleNurse, domain.RoleDoctor, domain.RoleAdmin),
+	)
+	{
+		patientWrites.POST("", patientHandler.Create)
+		patientWrites.PATCH("/:id", patientHandler.Update)
 	}
 
 	// ─── administration ────────────────────────────────────────────
