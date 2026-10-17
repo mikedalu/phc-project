@@ -109,8 +109,11 @@ func run() error {
 	householdSvc := service.NewHouseholds(pool)
 	householdHandler := handler.NewHouseholds(householdSvc)
 
+	encounterSvc := service.NewEncounters(pool)
+	encounterHandler := handler.NewEncounters(encounterSvc)
+
 	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
-		patientHandler, householdHandler, issuer)
+		patientHandler, householdHandler, encounterHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -179,6 +182,7 @@ func buildRouter(
 	syncHandler *handler.Sync,
 	patientHandler *handler.Patients,
 	householdHandler *handler.Households,
+	encounterHandler *handler.Encounters,
 	issuer *token.Issuer,
 ) *gin.Engine {
 	router := gin.New()
@@ -297,6 +301,35 @@ func buildRouter(
 		// Family registration. Static segment, so it cannot be confused with
 		// the :id route, and it is POST where :id is GET/PATCH.
 		patientWrites.POST("/family", householdHandler.RegisterFamily)
+	}
+
+	// ─── queue, encounters and vitals ──────────────────────────────
+	queue := v1.Group("/queue")
+	queue.Use(middleware.RequireAuth(issuer))
+	{
+		queue.GET("", encounterHandler.Queue)
+	}
+
+	encounters := v1.Group("/encounters")
+	encounters.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleFrontDesk, domain.RoleNurse, domain.RoleDoctor, domain.RoleAdmin),
+	)
+	{
+		encounters.POST("", encounterHandler.Start)
+		encounters.POST("/:id/transition", encounterHandler.Transition)
+	}
+
+	// Vitals hang off the patient: a reading belongs to a person, and only
+	// optionally to a visit (a ward observation may have no encounter).
+	patientVitals := v1.Group("/patients/:id/vitals")
+	patientVitals.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleNurse, domain.RoleDoctor, domain.RoleAdmin),
+	)
+	{
+		patientVitals.POST("", encounterHandler.RecordVitals)
+		patientVitals.GET("", encounterHandler.ListVitals)
 	}
 
 	// ─── households ────────────────────────────────────────────────
