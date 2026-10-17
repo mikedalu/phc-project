@@ -85,8 +85,10 @@ You see: **Queue**, **Patients**, **Ward**, **Laboratory**, **Pharmacy**.
    Then *Record diagnosis*. Add notes if useful.
 3. **Order a test** — choose the test, set priority, *Order test*. The bill is
    raised at the same time; the cashier will see it immediately.
-4. **Prescribe** — *(prescribing is available through the API; the screen is not
-   built — use the pharmacy queue to see what has arrived)*.
+4. **Prescribe** — at the bottom of the consultation screen, add each drug with
+   its dose, frequency, days and quantity, then *Prescribe*. The bill is raised at
+   the same moment and the cashier sees it immediately. The patient takes the
+   prescription to the cashier, then to the pharmacy.
 5. **Refer a patient** — *Refer patient* at the top of the consultation. Give the
    receiving facility, the reason, and how urgent it is. Print the note or show
    the QR code on screen. It is valid for 48 hours.

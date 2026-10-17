@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { createRoute, Link } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, FlaskConical, Plus, Stethoscope } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Loader2, Pill, Plus, Stethoscope } from 'lucide-react';
 import { toast } from 'sonner';
 import { Route as rootRoute } from '@/routes/__root';
 import { db } from '@/db';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
-import { addDiagnosis, addLabOrder } from '@/features/consultation/write';
+import { addDiagnosis, addLabOrder, addPrescription } from '@/features/consultation/write';
+import { formatMoney } from '@/features/billing/write';
 import { searchICD10, type ICD10Entry } from '@/features/consultation/icd10';
 import type { DiagnosisRow } from '@/db/types';
 
@@ -103,6 +104,8 @@ function ConsultationPage() {
           orders={orders}
         />
       </div>
+
+      <PrescriptionPanel patientId={encounter.patientId} encounterId={encounter.id} />
     </div>
   );
 }
@@ -344,6 +347,170 @@ function LabOrderPanel({
               </div>
             </li>
           ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+
+/**
+ * Prescribing.
+ *
+ * Writes the prescription, its bill and its lines in ONE local transaction, so
+ * the doctor can prescribe offline and the cashier still sees the bill.
+ */
+function PrescriptionPanel({ patientId, encounterId }: { patientId: string; encounterId: string }) {
+  const prescriptions = useLiveQuery(
+    () => db.prescriptions.where('encounterId').equals(encounterId).toArray(),
+    [encounterId],
+    [],
+  );
+  const items = useLiveQuery(
+    () => db.prescription_items.toArray(),
+    [],
+    [],
+  );
+
+  const [drug, setDrug] = useState('');
+  const [dose, setDose] = useState('1 tablet');
+  const [frequency, setFrequency] = useState('BD');
+  const [days, setDays] = useState('3');
+  const [quantity, setQuantity] = useState('6');
+  const [price, setPrice] = useState('500');
+  const [lines, setLines] = useState<Array<{ drug: string; dose: string; frequency: string; days: number; quantity: number; price: number }>>([]);
+  const [saving, setSaving] = useState(false);
+
+  const addLine = () => {
+    if (!drug.trim()) return;
+    setLines((current) => [
+      ...current,
+      {
+        drug: drug.trim(),
+        dose: dose.trim(),
+        frequency: frequency.trim(),
+        days: Number(days) || 0,
+        quantity: Number(quantity) || 0,
+        price: Math.round((Number(price) || 0) * 100),
+      },
+    ]);
+    setDrug('');
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const result = await addPrescription({
+        patientId,
+        encounterId,
+        lines: lines.map((l) => ({
+          drugName: l.drug,
+          dose: l.dose,
+          frequency: l.frequency,
+          durationDays: l.days || null,
+          quantity: l.quantity,
+          unitPriceMinor: l.price,
+        })),
+      });
+      toast.success(`Prescribed · ${formatMoney(result.totalMinor)} billed.`);
+      setLines([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not prescribe.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-md border border-border bg-surface">
+      <h2 className="flex items-center gap-2 border-b border-border bg-surface-sunken px-4 py-2 text-sm font-medium text-text">
+        <Pill aria-hidden="true" className="size-4" />
+        Prescription ({prescriptions.length})
+      </h2>
+
+      <div className="space-y-3 p-4">
+        <div className="grid gap-2 sm:grid-cols-6">
+          <FormField label="Drug">
+            {(field) => (
+              <Input
+                id={field.id}
+                value={drug}
+                onChange={(e) => setDrug(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addLine();
+                }}
+                placeholder="Artemether/Lumefantrine"
+              />
+            )}
+          </FormField>
+          <FormField label="Dose">
+            {(field) => <Input id={field.id} value={dose} onChange={(e) => setDose(e.target.value)} />}
+          </FormField>
+          <FormField label="Frequency">
+            {(field) => (
+              <Input id={field.id} value={frequency} onChange={(e) => setFrequency(e.target.value)} />
+            )}
+          </FormField>
+          <FormField label="Days">
+            {(field) => (
+              <Input id={field.id} inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} />
+            )}
+          </FormField>
+          <FormField label="Quantity">
+            {(field) => (
+              <Input id={field.id} inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+            )}
+          </FormField>
+          <FormField label="Unit price (₦)">
+            {(field) => (
+              <Input id={field.id} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+            )}
+          </FormField>
+        </div>
+
+        <Button size="sm" variant="secondary" onClick={addLine} disabled={!drug.trim()}>
+          <Plus aria-hidden="true" className="size-3.5" />
+          Add drug
+        </Button>
+
+        {lines.length > 0 ? (
+          <ul className="divide-y divide-border rounded-sm border border-border">
+            {lines.map((line, index) => (
+              <li key={`${line.drug}-${index}`} className="flex items-center justify-between px-3 py-1.5 text-sm">
+                <span>
+                  <span className="text-text">{line.drug}</span>{' '}
+                  <span className="text-text-muted">
+                    · {line.dose} · {line.frequency} · {line.days}d · ×{line.quantity}
+                  </span>
+                </span>
+                <span className="tnum text-text">{formatMoney(line.price * line.quantity)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <Button onClick={() => void save()} disabled={saving || lines.length === 0}>
+          {saving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+          Prescribe {lines.length > 0 ? `(${formatMoney(lines.reduce((s, l) => s + l.price * l.quantity, 0))})` : ''}
+        </Button>
+
+        <ul className="divide-y divide-border">
+          {prescriptions.map((rx) => {
+            const rxItems = items.filter((i) => i.prescriptionId === rx.id);
+            return (
+              <li key={rx.id} className="py-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="font-mono text-xs text-text-muted">{rx.prescriptionNumber}</p>
+                  <span className="rounded-xs bg-surface-sunken px-1.5 py-0.5 text-xs text-text-muted">
+                    {rx.status.replaceAll('_', ' ')}
+                  </span>
+                </div>
+                <p className="text-xs text-text-subtle">
+                  {rxItems.map((i) => `${i.drugName} ${i.dose} ${i.frequency}`).join(' · ')}
+                </p>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </section>

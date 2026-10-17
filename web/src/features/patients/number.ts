@@ -31,7 +31,9 @@ export async function nextFamilyNumber(): Promise<string> {
   return nextNumber('FAM');
 }
 
-export async function nextNumber(type: 'PAT' | 'FAM' | 'VIS' | 'LAB' | 'RCP'): Promise<string> {
+export async function nextNumber(
+  type: 'PAT' | 'FAM' | 'VIS' | 'LAB' | 'RCP' | 'INV' | 'RX',
+): Promise<string> {
   const year = new Date().getFullYear();
 
   const [codeEntry, deviceId] = await Promise.all([
