@@ -8,9 +8,9 @@
 
 ## 1. Status board
 
-**Current sprint:** `Sprint 0 — Foundations & Walking Skeleton`
+**Current sprint:** `Sprint 1 — Auth, roles & device identity`
 **Sprint start:** _fill in_ · **Sprint end:** _fill in_
-**Overall status:** 🟡 In progress — backend live against Neon and verified end to end; frontend not started
+**Overall status:** 🟢 Sprint 0 complete and deployed. Sprint 1 in progress — schema done, password hashing done
 **Last updated:** Sprint 0, after Neon connection + module path
 
 | Legend | Meaning |
@@ -29,8 +29,8 @@ Update this table the moment a sprint closes. It is the first thing to show your
 
 | Sprint | Goal | Status | Started | Completed | Planned % | Actual % | Notes |
 |---|---|---|---|---|---|---|---|
-| 0 | Foundations & walking skeleton | 🟡 | | | 26 | 50% | Tasks 0.1–0.13 done and verified; 0.14–0.26 outstanding |
-| 1 | Auth, roles & device identity | ⬜ | | | | | |
+| 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
+| 1 | Auth, roles & device identity | 🟡 | | | 17 | 25% | Migrations 00005–00008 done; password package done + tested; JWT/service/handlers next |
 | 2 | Sync engine | ⬜ | | | | | |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
@@ -95,8 +95,8 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 0.20 | Dexie initialised at version 1 | FE | ✅ | 4 domain tables + `outbox`, `syncMeta`, `conflicts`, `numberCounters` |
 | 0.21 | API client with error-envelope handling | FE | ✅ | `ApiError` with `isRetryable`; offline distinguished from a server rejection |
 | 0.22 | Health-check page rendering `GET /meta` | FE | ✅ | 4 live checks incl. a Dexie probe; honest about what is not built |
-| 0.23 | Deploy web to Cloudflare Pages | INFRA | ⬜ | **Needs your Cloudflare account** — `dist/` is ready to upload |
-| 0.24 | **End-to-end proof**: browser → API → Neon → browser | INFRA | ⬜ | Blocked on 0.16 + 0.23 — both need your cloud accounts |
+| 0.23 | Deploy web to Cloudflare Pages | INFRA | ✅ | Deployed by you. Pending confirmation that the build carries the Cloud Run URL (see 0.24) |
+| 0.24 | **End-to-end proof**: browser → API → Neon → browser | INFRA | 🟡 | Both halves deployed. **Needs one browser check:** Network tab must show a request to the `.run.app` host, not `localhost` |
 | 0.25 | Vitest + Playwright configured | TEST | ⬜ | Batch 4 |
 | 0.26 | `CLAUDE.md` + docs committed | DOCS | ✅ | Done during Sprint 0 planning |
 | 0.27 | **ADDED** `00004_seed_admin_user.sql` with a real, verified Argon2id hash | DB | ✅ | Not in the original plan; a fresh install needs a usable login |
@@ -121,11 +121,11 @@ A task is **not** done because the code runs on your machine. It is done when ev
 
 | # | Task | Type | Status |
 |---|---|---|---|
-| 1.1 | `00004_create_user_roles.sql` | DB | ⬜ |
-| 1.2 | `00005_create_devices.sql` | DB | ⬜ |
-| 1.3 | `00006_create_refresh_tokens.sql` | DB | ⬜ |
-| 1.4 | `00007_seed_admin_user.sql` | DB | ⬜ |
-| 1.5 | Argon2id hashing + verification helpers | BE | ⬜ |
+| 1.1 | `00005_create_user_roles.sql` | DB | ✅ | Verified: invalid role rejected, duplicate active role rejected, re-grant after revoke allowed, revocation requires a reason |
+| 1.2 | `00006_create_devices.sql` | DB | ✅ | `registered_by` nullable (shared workstation). Duplicate fingerprint rejected |
+| 1.3 | `00007_create_refresh_tokens.sql` | DB | ✅ | Server-only, no sync columns. Reuse-detection family index. Past expiry rejected |
+| 1.4 | `00008_seed_admin_role.sql` | DB | ✅ | **NOT in the original plan** — the seeded admin had no role and could log in but authorise nothing |
+| 1.5 | Argon2id hashing + verification helpers | BE | ✅ | **10 tests pass.** 78 ms hash / 73 ms verify at 64 MiB. Includes a 1 GiB ceiling against a DoS via tampered cost params |
 | 1.6 | JWT issue/verify (access + refresh) | BE | ⬜ |
 | 1.7 | `POST /auth/login` with dual rate limiting | BE | ⬜ |
 | 1.8 | `POST /auth/refresh` with reuse detection | BE | ⬜ |
@@ -344,6 +344,8 @@ Record every decision that would be expensive to reverse. This is also the raw m
 | D21 | | `web/.env` is **committed** with non-secret build defaults | Leave VITE_* unset | Vite substitutes `%VITE_API_ORIGIN%` in `index.html` at build time, and when the variable is undefined it leaves the placeholder **literal**. A CSP then reads `connect-src 'self' %VITE_API_ORIGIN%`, which is a malformed source list that browsers may discard wholesale — silently disabling the protection. A committed `.env` guarantees a definite value; `.env.local` overrides it. Nothing in it is secret, because Vite inlines every `VITE_*` value into the public bundle | 0 |
 | D22 | | Deploy with `--env-vars-file .env.production` (plain env vars, **no Secret Manager**) | Secret Manager + IAM bindings | One fewer service, one fewer IAM step, one fewer failure mode. gcloud accepts plain `.env` format, so the existing file works with no rewrite — and `--env-vars-file` is mutually exclusive with `--set-secrets`, so the two approaches cannot be half-mixed. **Trade-off, stated for the report:** env vars are readable in the Cloud Run revision metadata by anyone with `roles/run.viewer`, and old values persist in previous revisions after rotation. Secret Manager would isolate secret access from deploy access and allow rotation without a redeploy — the production choice, deliberately not taken here | 0 |
 | D23 | | `PROJECT_ID` must be the string **project ID**, never the project number | Rely on `gcloud config` | Cloud Run's `--project` rejects a number: *"The value of --project flag was set to Project number."* Two things that look like they should convert it, and do not: `gcloud config set project <number>` succeeds but stores the number **verbatim** (verified), and `gcloud projects describe <number>` needs an active account plus `resourcemanager.projects.get`. The reliable lookup is `gcloud projects list --filter="projectNumber=N" --format="value(projectId)"`. `scripts/deploy.sh` now rejects a numeric ID before any API call and prints that command | 0 |
+| D24 | | `user_roles.revoked_reason` added (not in the original schema) | `revoked_at` alone | Found while testing: revoking a role recorded *who* and *when* but not *why*. "Why did Dr X lose prescribing rights?" is a question that will be asked, so the column is now required alongside `revoked_at`, with a CHECK enforcing both or neither | 1 |
+| D25 | | `devices.registered_by` is **nullable** | `user_id NOT NULL` | A PHC workstation is shared — front desk, cashier and triage nurse may all use one machine — so a device does not belong to one user. This also broke a circular FK (`devices.user_id -> users`, `refresh_tokens.device_id -> devices`). The session owner is recorded per refresh token instead | 1 |
 
 ---
 
@@ -364,6 +366,7 @@ The habit that saves the project: two minutes at the end of every session.
 | Sprint 0 batch 1 | — | Repo scaffold, Go module, config loader, pooler-safe pgx pool, `httpx` (request ID, error envelope, CORS), `main.go`, migrations 00001–00004, Makefile, `.env.example`. All verified against a throwaway PostgreSQL 18. | Batch 2: Dockerfile, Cloud Run deploy, Vite + Tailwind tokens, Dexie v1, app shell | Need your Neon project (0.3) and GCP/Cloudflare accounts (0.16, 0.23) |
 | Sprint 0 refactor | — | **Removed multi-tenancy.** Rewrote migrations 00001–00004 (nothing was applied), stripped `facility_id` from the sync contract and ~25 tables, removed the `facility_mismatch` push rejection and the facility pull filter, added `uq_facilities_single_org`, reordered the admin seed to 00004. Updated all 12 docs + `CLAUDE.md` + `README.md` (137 references). Re-verified: `up→down→up` clean, 4 constraint tests pass, API builds and serves. | Batch 2 (unchanged) | — |
 | Sprint 0 deploy | — | **API deployed to Cloud Run** (`europe-west1`), env vars via `--env-vars-file`. Added `scripts/deploy.sh` (9 guards) and `scripts/verify-deploy.sh` (5 checks incl. a 30-request concurrency test for the pooler trap). Debugged project-number-vs-project-ID across several rounds. | Verify deploy, then Cloudflare Pages (0.23), then the CORS loop-back (pass 2), then the end-to-end proof (0.24) | Cloudflare account for 0.23 |
+| Sprint 1 batch 1 | — | Migrations 00005–00008 (user_roles, devices, refresh_tokens, admin role seed) validated on a throwaway PG18 then applied to Neon → version 8. Wrote `internal/platform/password` with 10 tests; measured 78 ms hash / 73 ms verify at production cost. | Batch 2: JWT (access + refresh with reuse detection), auth service, login/refresh/logout handlers, RBAC middleware | — |
 
 ### Verified after the single-tenant refactor
 
@@ -387,7 +390,7 @@ Fill these in at each sprint close. They take ten minutes and they make your eva
 
 | Sprint | Tasks planned | Tasks done | Migrations | Endpoints | Screens | Tests added | Bugs found | Bugs fixed | Sync latency p95 |
 |---|---|---|---|---|---|---|---|---|---|
-| 0 | 30 | 26 | 4 | 3 | 4 | | | | |
+| 0 | 30 | 29 | 4 | 3 | 4 | | | | |
 | 1 | 17 | | 4 | 6 | 1 | | | | |
 | 2 | 19 | | 1 | 4 | 1 | | | | |
 | 3 | 13 | | 2 | ~15 | 4 | | | | |
