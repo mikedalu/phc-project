@@ -228,12 +228,16 @@ await db.transaction('rw', [db.invoices, db.charges, db.outbox], async () => {
 ```http
 POST /api/v1/sync/push
 Authorization: Bearer <access_token>
-X-Device-Id: 018f3c2a-...
 X-Device-Timestamp: 2026-02-14T09:31:07.221Z
-X-Device-Nonce: 9f2b7c41e8a34d55
+X-Device-Nonce: 3q2-7wTkR9mZ1sVbQ0cJx4LpA6nH8yGd
 X-Device-Signature: base64url(ECDSA-P256-SHA256(canonicalString))
 Content-Type: application/json
 ```
+
+> There is **no `X-Device-Id` header.** The device is the access token's `device_id` claim, which
+> is authenticated. A header would be client-chosen, so a signature could claim to be another
+> device — which defeats the binding the signature exists to provide. The nonce is 32 random
+> bytes, base64url (43 characters), not hex.
 
 ```jsonc
 {
@@ -331,7 +335,8 @@ Execute inside **one database transaction**:
 ```
 1. Authenticate the user from the JWT → user_id and roles.
 2. Verify the device:
-     - devices.id = X-Device-Id exists and revoked_at IS NULL
+     - devices.id = the JWT's device_id claim exists and revoked_at IS NULL
+     - public_key is registered (not the empty placeholder from login)
      - signature valid for the canonical string
      - timestamp within tolerance; nonce unused
 3. Idempotency at batch level:

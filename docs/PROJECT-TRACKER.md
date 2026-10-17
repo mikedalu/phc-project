@@ -10,8 +10,8 @@
 
 **Current sprint:** `Sprint 1 — Auth, roles & device identity`
 **Sprint start:** _fill in_ · **Sprint end:** _fill in_
-**Overall status:** 🟢 Sprint 0 complete and deployed. Sprint 1 in progress — schema done, password hashing done
-**Last updated:** Sprint 0, after Neon connection + module path
+**Overall status:** 🟢 Sprint 0 complete and deployed. Sprint 1 backend complete — auth, roles, device registration, signing and revocation verified live
+**Last updated:** Sprint 1, after device identity (batch 5)
 
 | Legend | Meaning |
 |---|---|
@@ -30,7 +30,7 @@ Update this table the moment a sprint closes. It is the first thing to show your
 | Sprint | Goal | Status | Started | Completed | Planned % | Actual % | Notes |
 |---|---|---|---|---|---|---|---|
 | 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
-| 1 | Auth, roles & device identity | 🟡 | | | 17 | 80% | **Working login, refresh, logout and session endpoints, verified end to end via curl.** 31 tests green against live Neon. Device keys remain |
+| 1 | Auth, roles & device identity | 🟡 | | | 17 | 92% | **Backend complete:** login, refresh, logout, session, device key registration, revocation, signature verifier + nonce cache. 38 unit tests green. **Remaining: the whole frontend half** (1.13–1.16) |
 | 2 | Sync engine | ⬜ | | | | | |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
@@ -132,12 +132,16 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 1.9 | `POST /auth/logout` | BE | ✅ | 204, idempotent |
 | 1.10 | `GET /auth/session` | BE | ✅ | Returns the user DTO, 401 without/with a bad token |
 | 1.11 | Auth middleware + role middleware | BE | ✅ | `RequireAuth` verifies and publishes an Actor; `RequireRole` is a coarse gate. Docs state plainly it is **not** the security boundary |
-| 1.12 | ECDSA P-256 device keypair + registration | FE | ⬜ |
+| 1.12 | ECDSA P-256 device keypair + registration | FE | ✅ | `web/src/sync/deviceKey.ts`: generate → export SPKI + JWK once → store → re-import non-extractable. Two-tab race handled with a Dexie transaction |
 | 1.13 | Login screen | FE | ⬜ |
 | 1.14 | Session store (Zustand) + token refresh interceptor | FE | ⬜ |
 | 1.15 | Role-based nav + route guards | FE | ⬜ |
 | 1.16 | Configurable offline grace window + `OFFLINE_POLICY` logic | FE | ⬜ |
-| 1.17 | Tests: login, refresh reuse, RBAC | TEST | 🟡 | **31 pass against live Neon.** RBAC-specific tests still to add with the first role-gated endpoint |
+| 1.17 | Tests: login, refresh reuse, RBAC | TEST | 🟡 | **38 pass.** Unit: Argon2id, JWT (incl. `alg=none`), device signature interop (DER + P1363), nonce, middleware flow (replay, tamper, skew, revocation). RBAC route-matrix test still to add |
+| 1.18 | **ADDED** `platform/devicekey` verifier + unit tests | BE | ✅ | 8 tests. Pinned a signature produced **outside Go** (WebCrypto key, OpenSSL DER + Node P1363) so the encoding trap cannot regress |
+| 1.19 | **ADDED** `POST /devices` key registration | BE | ✅ | First-write-wins key binding; idempotent same-key retry; 409 on a key swap; fingerprint computed server-side. Verified live |
+| 1.20 | **ADDED** `POST /admin/devices/:id/revoke` | BE | ✅ | Device + all its refresh families revoked in one transaction. Verified live: `revokedSessions: 1`, re-login refused 403 |
+| 1.21 | **ADDED** `DeviceSignature` middleware + nonce cache | BE | ✅ | 7 middleware tests. Not mounted yet — it is enforced on `/sync/*` from Sprint 2, as the roadmap specifies |
 
 ### Sprint 2 — Sync engine
 
@@ -350,6 +354,9 @@ Record every decision that would be expensive to reverse. This is also the raw m
 | D27 | | In-memory, **per-instance** login rate limiter, with DB-backed account lockout as the real control | Redis-backed shared limiter | The limiter is a speed bump: with `--max-instances=5` an attacker gets 5× the allowance. The account lockout is database-backed and therefore consistent, which is why it carries the real weight. A shared store is recorded as future work rather than pretended away | 1 |
 | D28 | | `domain.PublicError` separates the client-facing message from the internal error | Return `err.Error()` to clients | Wrapping with `%w` made messages leak implementation vocabulary: `"unauthenticated: incorrect staff number or password"`. That is sloppy and hands an attacker the internal failure taxonomy. `PublicError.Unwrap` still satisfies `errors.Is` for classification, while `Message()` supplies text a clinician can read. `httpx.Error` now falls back to a generic per-kind message for anything unrecognised, so a raw SQL error can never reach a user | 1 |
 | D29 | | `Makefile` exports overridable `GOCACHE`/`GOMODCACHE` | Use Go defaults | Hit a confusing `[setup failed] — read-only file system` when `$HOME` was not writable. It looked like a code error but was the build cache. Now `make test-api-db GOCACHE=/tmp/gocache` works anywhere, which matters for CI and containerised builds | 1 |
+| D30 | | **Canonical string = `02-SYNC-PROTOCOL.md` §5.2**: `METHOD\nPATH\nDEVICE_ID\nISO-TS\nNONCE\nb64url(sha256(body))`, no prefix | Follow 05-SECURITY §4.4 (prefix `PHC-SYNC-V1`, hex hash, unix timestamp, no device id) | The documents had drifted into four mutually incompatible definitions — the worst bug class here, because the result is a signature that is valid and always fails. `02-SYNC-PROTOCOL.md` wins: it is named canonical for sync, and it is the only version that binds `DEVICE_ID` with a self-consistent encoding. `05-SECURITY.md` §4.3–4.4 and `07-API-CONTRACT.md` §1.4/§1.7 corrected in the same commit | 1 |
+| D31 | | Signature verification accepts **both** ASN.1 DER and raw P1363 `r\|\|s` | DER only; P1363 only | Browsers emit DER; Node's WebCrypto and some embedded WebViews emit 64-byte P1363. Accepting one produces "valid but never verifies" on the others. The two are unambiguous (DER starts `0x30`; P1363 is exactly 64 bytes) and both verify against the same key and message, so tolerance costs no security. Both tested, with vectors generated outside Go | 1 |
+| D32 | | Device key registration is **first-write-wins**, and there is **no `status` column** | `status = 'pending' \| 'active' \| 'revoked'`; allow key rotation with a token | (a) A device with no key gets this one; the same key again is an idempotent 200; a *different* key is a 409. Otherwise a stolen access token could swap in an attacker's key and every later push would verify. (b) `01-DATA-MODEL.md` is canonical for the schema — a device is revoked iff `revoked_at IS NOT NULL` — so `05-SECURITY.md` was corrected rather than the schema changed. A "pending approval" state is recorded as future work | 1 |
 
 ---
 
@@ -374,6 +381,7 @@ The habit that saves the project: two minutes at the end of every session.
 | Sprint 1 batch 2 | — | `internal/domain`: sentinel errors + `ValidationError` + the eight roles with `HasRole`/`HasAnyRole`. `internal/platform/token`: HS256 access tokens, injectable clock, 9 tests incl. a **verified `alg=none` forgery** (empty signature, payload claiming admin) that is correctly rejected. Full suite: 19 tests green, `gofmt`/`vet`/build clean. | Batch 3: repos (users, user_roles, devices, refresh_tokens), refresh-token rotation with reuse detection, auth service | — |
 | Sprint 1 batch 3 | — | Repos (users, devices, refresh_tokens) with a `Querier` interface proven by the compiler to accept both pool and tx. Auth service: login, refresh with reuse detection, logout, session revocation. 13 integration tests against real PostgreSQL. **Two live bugs found and fixed** (see D26) — neither was visible without running the code. | Batch 4: HTTP handlers + auth/role middleware, then ECDSA device identity | — |
 | Sprint 1 batch 4 | — | HTTP layer complete: `httpx.Error` central error mapping, `RequireAuth`/`RequireRole`/`TrustProxy` middleware, auth handlers (login, refresh, logout, session, change-password), wired into `main.go`. **Verified live via curl**: login 200, wrong password 401, no-token 401, garbage token 401, refresh rotates, reuse kills the family. Added `domain.PublicError` so error messages are human-readable. `make test-api-db` runs all 31 tests against live Neon. | Batch 5: ECDSA device identity (keypair, registration, request signing) | — |
+| Sprint 1 batch 5 | — | **Device identity, end to end.** FE: `lib/encoding.ts`, `sync/deviceKey.ts`, Dexie v2 `deviceKeys` store. BE: `platform/devicekey` (SPKI parse, DER + P1363 verify, fingerprint, canonical string) with 8 interop tests pinned to vectors generated **outside Go**; `POST /devices`; `POST /admin/devices/:id/revoke`; `DeviceSignature` middleware + nonce cache with 7 flow tests. Resolved the canonical-string contradiction across three docs (**D30**) and corrected them. **Verified live:** register 200 with a real fingerprint, same key 200 idempotent, key swap 409, mismatched deviceId 400, bad key 400, revoke 200 (`revokedSessions: 1`), re-login on a revoked device 403. | Sprint 1 frontend half: login screen (1.13), session store + refresh interceptor (1.14), role nav + guards (1.15), offline grace window (1.16) | — |
 
 ### Verified after the single-tenant refactor
 

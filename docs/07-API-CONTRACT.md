@@ -67,9 +67,13 @@ Endpoints marked 🔓 are public. Everything else requires a valid token.
 | 401 | `UNAUTHENTICATED` | No token, or token malformed | Redirect to login |
 | 401 | `TOKEN_EXPIRED` | Access token expired | Refresh, then retry once |
 | 401 | `INVALID_CREDENTIALS` | Wrong username or password | Show the login error |
-| 401 | `CLOCK_SKEW` | Device time off by > 5 min | Show "fix your clock" and block sync |
+| 401 | `CLOCK_SKEW` | Device time off by > 5 min, or an unparseable timestamp | Show "fix your clock" and block sync |
+| 401 | `DEVICE_SIGNATURE_MISSING` | A signed endpoint was called without the three device headers | Register the device, then retry |
+| 401 | `DEVICE_SIGNATURE_INVALID` | The device signature did not verify | Re-register the device key; do not retry blindly |
 | 403 | `FORBIDDEN` | Authenticated, wrong role | Hide the action; do not retry |
-| 403 | `DEVICE_REVOKED` | Device key revoked | Wipe local data, force re-registration |
+| 403 | `DEVICE_REVOKED` | Device key revoked, or the device id is unknown | Wipe local data, force re-registration |
+| 403 | `DEVICE_KEY_NOT_REGISTERED` | The device has no public key yet (the login → register gap) | Call `POST /devices` |
+| 409 | `DEVICE_NONCE_REPLAYED` | These exact bytes were already received | Treat as already applied; a fresh request needs a fresh nonce |
 | 403 | `OFFLINE_GRACE_EXPIRED` | Offline window passed under `block_writes` | Require an online re-auth |
 | 404 | `NOT_FOUND` | No such resource — **also used for expired referrals** | Show a friendly not-found |
 | 409 | `CONFLICT` | State conflict (`UNIQUE_VIOLATION`, `STALE_STATE`) | Reload and re-apply |
@@ -108,7 +112,7 @@ The server stores the key with the response for 24 hours; a repeat with the same
 |---|---|---|
 | `Authorization` | all protected | `Bearer <token>` |
 | `X-Request-Id` | optional | Client-generated correlation ID; echoed back |
-| `X-Device-Id` | sync endpoints | Identifies the workstation |
+| ~~`X-Device-Id`~~ | — | **Not used.** The device is taken from the access token's `device_id` claim, which is authenticated. A header would be client-chosen, so a signature could claim another device. |
 | `X-Device-Signature` | sync endpoints | ECDSA P-256 over the canonical string |
 | `X-Device-Timestamp` | sync endpoints | ISO-8601, ±5 min tolerance |
 | `X-Device-Nonce` | sync endpoints | Replay prevention |
@@ -235,6 +239,69 @@ Who am I, according to the server. Used to revalidate after offline work.
 
 ```json
 { "data": { "user": { "...": "..." }, "roles": ["nurse"], "device": { "id": "...", "revoked": false }, "offlineGraceExpiresAt": "2026-02-21T09:31:07Z" } }
+```
+
+### `POST /devices` 🔐
+
+Binds this workstation's ECDSA P-256 public key to the device named in the access token. Called
+once after login, before the first sync push. See `05-SECURITY.md` §4.3.
+
+```json
+{
+  "deviceId":   "018f3c2a-...",
+  "publicKey":  "<base64url SPKI>",
+  "algorithm":  "ES256",
+  "label":      "Triage laptop 2",
+  "platform":   "Windows 11 / Chrome 141",
+  "appVersion": "0.1.0"
+}
+```
+
+```json
+{
+  "data": {
+    "id": "018f3c2a-...",
+    "name": "Triage laptop 2",
+    "platform": "Windows 11 / Chrome 141",
+    "algorithm": "ES256",
+    "publicKeyFingerprint": "746c91ed971d55d9…",
+    "registered": true,
+    "revoked": false,
+    "lastSeenAt": "2026-02-14T09:31:07Z",
+    "createdAt": "2026-02-14T09:20:00Z"
+  }
+}
+```
+
+| Situation | Status | `code` |
+|---|---|---|
+| First registration | 200 | — |
+| Same key again (idempotent retry) | 200 | — |
+| A different key already registered | 409 | `CONFLICT` |
+| `deviceId` differs from the token | 400 | `VALIDATION_FAILED` |
+| Public key does not parse | 400 | `VALIDATION_FAILED` |
+| Device is revoked | 403 | `DEVICE_REVOKED` |
+
+The fingerprint is computed **server-side** from the decoded DER. It is never accepted from the
+client, and the public key is never echoed back.
+
+### `POST /admin/devices/:id/revoke` 🔐 `[AD]`
+
+```json
+{ "reason": "laptop stolen from records room 2026-01-14" }
+```
+
+Marks the device revoked and **revokes every refresh-token family bound to it, in the same
+transaction**. Signed requests from that device fail on the next request with `403 DEVICE_REVOKED`.
+Access tokens already issued are not denylisted (no `jti` denylist yet), so JWT-only endpoints keep
+working until they expire — at most 15 minutes.
+
+Idempotent: revoking an already-revoked device returns 200 with `revokedSessions: 0`. `reason` is
+required (5–500 characters) — a revocation nobody can explain later is a revocation that gets
+overturned by accident.
+
+```json
+{ "data": { "device": { "...": "..." }, "revokedSessions": 2 } }
 ```
 
 ---

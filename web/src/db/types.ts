@@ -137,12 +137,19 @@ export interface OutboxEntry {
   deviceRecordedAt: string;
 }
 
+/**
+ * Keys in the `syncMeta` k/v store.
+ *
+ * Note what is deliberately NOT here: `deviceId`. The device id lives in the
+ * `deviceKeys` row and nowhere else. Two sources of truth for an identity value
+ * is how one half of the app ends up signing as a device the server has never
+ * seen.
+ */
 export type SyncMetaKey =
   | 'pullCursor'
   | 'lastPushAt'
   | 'lastPullAt'
   | 'lastError'
-  | 'deviceId'
   | 'bootstrapped'
   | 'offlineSince';
 
@@ -169,6 +176,37 @@ export interface LocalConflict {
 export interface NumberCounter {
   key: string;
   lastValue: number;
+}
+
+/**
+ * The device's ECDSA P-256 keypair. ONE row, `id = 'local'`.
+ *
+ * This is the most sensitive row in the local database: it signs every sync
+ * push. It is stored as an exported JWK because a non-extractable `CryptoKey`
+ * cannot be persisted — the bytes cannot be read out, so they cannot be written
+ * down. docs/05-SECURITY.md §4.2 weighs the options; Option B is this one,
+ * chosen because a PHC workstation reboots daily and re-registering a key on
+ * every boot would make the device control unusable.
+ *
+ * The JWK is exported exactly ONCE, at creation. On every subsequent load it is
+ * re-imported non-extractable, so for the whole session the key cannot be read
+ * back out by JavaScript — including by this app.
+ */
+export interface DeviceKeyRow {
+  /** Constant 'local'. There is exactly one identity per browser profile. */
+  id: 'local';
+  /** Sent to the server; also the JWT's `device_id` claim. */
+  deviceId: string;
+  algorithm: 'ES256';
+  /** Private key as JWK. Never log this, never sync it, never put it in a URL. */
+  privateKeyJwk: JsonWebKey;
+  /** base64url SPKI DER — the exact string POST /api/v1/devices stores. */
+  publicKeyB64: string;
+  /** SHA-256 of the SPKI DER, lowercase hex. The admin-facing identity of this key. */
+  fingerprint: string;
+  /** False until the server has confirmed it stored this public key. */
+  registered: boolean;
+  createdAt: string;
 }
 
 /** Generates a time-ordered UUID. The ONLY way IDs are created in this app. */

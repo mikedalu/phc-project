@@ -45,6 +45,12 @@ func Error(c *gin.Context, err error) {
 		Forbidden(c, "FORBIDDEN",
 			domain.ClientMessage(err, "You do not have permission to do that."))
 
+	case errors.Is(err, domain.ErrDeviceRevoked):
+		// A distinct code because the client's response differs: wipe the local
+		// replica and stop syncing, rather than hide a button.
+		Forbidden(c, "DEVICE_REVOKED",
+			domain.ClientMessage(err, "This device is no longer trusted. Contact an administrator."))
+
 	case errors.Is(err, domain.ErrLocked):
 		// 429 rather than 403: this is a tempoary state and the client should
 		// retry later. The distinction changes the UI from "you may not" to

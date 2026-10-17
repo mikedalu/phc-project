@@ -123,6 +123,25 @@ func (r *RefreshTokens) RevokeAllForUser(ctx context.Context, q Querier, userID 
 	return tag.RowsAffected(), nil
 }
 
+// RevokeAllForDevice revokes every live session bound to one workstation.
+//
+// This is the other half of device revocation: marking `devices.revoked_at` stops
+// future pushes, but the device still holds a live refresh token that can mint
+// new access tokens. Both must die together, or a lost laptop keeps refreshing
+// for up to 30 days.
+func (r *RefreshTokens) RevokeAllForDevice(ctx context.Context, q Querier, deviceID uuid.UUID, reason string) (int64, error) {
+	const sql = `
+        UPDATE refresh_tokens
+           SET revoked_at = now(), revoked_reason = $2
+         WHERE device_id = $1 AND revoked_at IS NULL`
+
+	tag, err := q.Exec(ctx, sql, deviceID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("revoke device sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CountLiveForUser reports how many usable sessions a user has.
 func (r *RefreshTokens) CountLiveForUser(ctx context.Context, q Querier, userID uuid.UUID) (int, error) {
 	const sql = `

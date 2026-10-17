@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type {
+  DeviceKeyRow,
   EncounterRow,
   HouseholdRow,
   LocalConflict,
@@ -45,6 +46,7 @@ export const db = new Dexie('phc_records') as Dexie & {
   syncMeta: EntityTable<SyncMeta, 'key'>;
   conflicts: EntityTable<LocalConflict, 'id'>;
   numberCounters: EntityTable<NumberCounter, 'key'>;
+  deviceKeys: EntityTable<DeviceKeyRow, 'id'>;
 };
 
 db.version(1).stores({
@@ -82,6 +84,18 @@ db.version(1).stores({
   syncMeta: 'key',
   conflicts: 'id, entityTable, rowId, detectedAt, acknowledged',
   numberCounters: 'key',
+});
+
+/**
+ * v2 — device identity.
+ *
+ * Dexie applies only the tables NAMED in a version block; everything declared in
+ * v1 carries forward untouched. Re-listing the v1 tables here is the usual
+ * mistake and the usual way an index silently disappears — name only what
+ * changes.
+ */
+db.version(2).stores({
+  deviceKeys: 'id, deviceId',
 });
 
 /**

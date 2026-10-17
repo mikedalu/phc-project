@@ -44,6 +44,14 @@ var (
 	// the client read it). Distinct from ErrConflict so the API can return the
 	// server's current version and let the client reconcile.
 	ErrStale = errors.New("stale revision")
+
+	// ErrDeviceRevoked — the workstation itself is no longer trusted.
+	//
+	// Distinct from ErrForbidden because the client's response is different:
+	// "wrong role" means hide the action, but "device revoked" means wipe the
+	// local replica and stop syncing. Collapsing the two leaves the client
+	// guessing, and a guessing client keeps retrying.
+	ErrDeviceRevoked = errors.New("device revoked")
 )
 
 // ValidationError carries field-level detail so a form can highlight the exact

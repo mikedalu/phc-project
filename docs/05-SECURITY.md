@@ -459,29 +459,40 @@ Note the `false` on re-import: the key only needs to be extractable **once**, at
 
 ### 4.3 Device registration
 
+A device row is created **at login**, so `last_seen_at` and the session binding exist from the
+first request. At that point it has **no public key** — it has not yet proved possession of one.
+Registration is the separate step that binds the key:
+
 ```
-POST /devices/register          (authenticated: valid access token)
+POST /api/v1/devices             (authenticated: valid access token)
 {
-  "device_id":        "0192f7…",
-  "public_key":       "<base64url SPKI-encoded P-256 public key>",
-  "algorithm":        "ES256",
-  "label":            "Triage laptop 2",
-  "platform":         "Windows 11 / Chrome 141",
-  "app_version":      "1.4.2",
-  "requested_at":     "2026-01-14T09:12:03Z"
+  "deviceId":   "0192f7…",                    // optional; must equal the token's device_id
+  "publicKey":  "<base64url SPKI P-256>",
+  "algorithm":  "ES256",
+  "label":      "Triage laptop 2",
+  "platform":   "Windows 11 / Chrome 141",
+  "appVersion": "1.4.2"
 }
 ```
 
 | Step | Server action |
 |---|---|
-| 1 | Verify the JWT (valid, unexpired, role permits device registration for themselves). |
-| 2 | Validate `public_key` length and encoding for the declared `algorithm`. Reject anything that does not parse. |
-| 3 | Insert into `devices` with `status = 'pending'` if the facility requires admin approval, or `'active'` for self-registration of a known user's first device. |
-| 4 | Bind the device to the user (`device_owners` or `devices.owner_user_id`). A device may be shared by several users; all of them are bound. |
-| 5 | Write `audit_logs`: `action = 'device.registered'`, actor, `device_id`, public-key fingerprint (SHA-256 of the key, first 16 hex chars — **never the whole key in the log**, and never the private key because the server never sees it). |
-| 6 | Return the device record and its `status`. |
+| 1 | Verify the JWT. The device acted on is the **token's** `device_id`; a different `deviceId` in the body is a 400, not something to honour. |
+| 2 | Parse the key as SPKI and require the P-256 curve. Reject anything that does not parse, before any write. |
+| 3 | Refuse a **revoked** device (`403 DEVICE_REVOKED`). Re-registration after revocation needs a human, or the control is one click. |
+| 4 | **First write wins.** A device with no key gets this one. A device that already has a key: the same key returns 200 (idempotent retry), a different key returns `409 CONFLICT`. Without that rule, a stolen token could swap in an attacker's key and every later push would verify. |
+| 5 | Compute the **fingerprint server-side** from the decoded DER (SHA-256, lowercase hex). Never accept a client-supplied fingerprint — it proves nothing and could make two distinct keys look like one. |
+| 6 | Write `audit_logs` (when that table lands in Sprint 6): actor, `device_id`, and the **first 16 hex chars** of the fingerprint — never the whole key, and never the private key, which the server never sees. Today the device row's own `created_at`/`updated_at` are the trail. |
+| 7 | Return the device record with `registered`, `revoked` and `publicKeyFingerprint`. |
 
-The admin device list shows: label, owner(s), public-key fingerprint, registered date, **last seen**, last sync, status, and a revoke button. "Last seen" is the field that turns an abstract risk into an operational one.
+There is **no `status` column** and no `device_owners` table. `01-DATA-MODEL.md` is canonical for
+the schema: a device is revoked iff `revoked_at IS NOT NULL`, and the user↔device pairing lives on
+`refresh_tokens`, one row per session. A "pending approval" state would need a migration and is
+recorded as future work.
+
+The admin device list shows: label, public-key fingerprint, registered date, **last seen**, last
+sync, revoked state, and a revoke button. "Last seen" is the field that turns an abstract risk into
+an operational one.
 
 ### 4.4 The canonical string that gets signed
 
@@ -490,13 +501,12 @@ Every `/sync/push` is signed. The signature must cover everything that determine
 **Exact construction — newline-delimited, UTF-8, in this order:**
 
 ```
-PHC-SYNC-V1
 <HTTP METHOD, uppercase>
 <PATH, exactly as sent, including the leading slash, without the query string>
-<lowercase hex SHA-256 of the raw request body bytes>
-<unix timestamp, seconds, decimal>
-<nonce, 32 random bytes base64url>
-<device_id>
+<DEVICE_ID, the uuid from the access token's device_id claim>
+<DEVICE_TIMESTAMP, the ISO-8601 string sent in X-Device-Timestamp, verbatim>
+<NONCE, 32 random bytes, base64url>
+<base64url-unpadded SHA-256 of the raw request body bytes>
 ```
 
 Rendered as one string with `\n` separators and **no trailing newline**. This is the exact construction specified in `02-SYNC-PROTOCOL.md` §5.2 — the two documents must never drift, because a one-character difference yields a signature that is valid and always fails verification:
@@ -559,77 +569,63 @@ export async function signSyncRequest(
 }
 ```
 
-**Server side (Go middleware):**
+**Server side (Go middleware).**
+
+The implementation lives in `api/internal/http/middleware/device_signature.go`, with the
+canonical string and the signature check in `api/internal/platform/devicekey`. It is reproduced
+here in outline; the code is the authority.
 
 ```go
-// internal/http/middleware/device_signature.go
-//
-// Order matters: RequireAuth runs first so we have user_id and device_id from
-// the verified JWT. This middleware then proves the request came from the device
-// that JWT was issued to. Either check failing rejects the request.
-func DeviceSignature(devices repo.DeviceRepo, nonces platform.NonceCache, maxSkew time.Duration) gin.HandlerFunc {
+// Order matters: RequireAuth runs first so the device id comes from the VERIFIED
+// JWT claim, never from a header the client chooses.
+func DeviceSignature(lookup DeviceLookup, nonces nonce.Cache, maxSkew time.Duration) gin.HandlerFunc {
     return func(c *gin.Context) {
-        if c.Request.Method == http.MethodGet {
-            c.Next() // pull is read-only and JWT-only; see §4.4.1
-            return
+        deviceID, ok := DeviceIDFrom(c) // from the JWT claim, NOT from a header
+        // ... require X-Device-Signature, X-Device-Timestamp, X-Device-Nonce
+
+        // Parse to CHECK the window, but sign over the ORIGINAL string:
+        // re-formatting it would change the bytes the client signed.
+        sentAt, err := time.Parse(time.RFC3339Nano, timestamp)
+        if err != nil || time.Since(sentAt).Abs() > maxSkew {
+            // CLOCK_SKEW, not SIGNATURE_INVALID — otherwise a wrong clock sends
+            // someone hunting a key bug.
         }
 
-        deviceID := c.GetString(ctxKeyDeviceID) // from the JWT claim, NOT from a header
-        sigB64 := c.GetHeader("X-Device-Signature")
-        tsStr := c.GetHeader("X-Device-Timestamp")
-        nonce := c.GetHeader("X-Device-Nonce")
-        if sigB64 == "" || tsStr == "" || nonce == "" {
-            abort(c, http.StatusUnauthorized, "device_signature_missing")
-            return
-        }
-
-        ts, err := strconv.ParseInt(tsStr, 10, 64)
-        if err != nil || math.Abs(float64(time.Now().Unix()-ts)) > maxSkew.Seconds() {
-            abort(c, http.StatusUnauthorized, "device_timestamp_out_of_window")
-            return
-        }
-
-        // Body was read once by the handler and stashed; hash the RAW bytes.
-        raw, ok := c.Get(ctxKeyRawBody)
-        if !ok {
-            abort(c, http.StatusInternalServerError, "raw_body_unavailable")
-            return
-        }
-        sum := sha256.Sum256(raw.([]byte))
-
-        canonical := strings.Join([]string{
-            "PHC-SYNC-V1",
+        canonical := devicekey.CanonicalString(
             c.Request.Method,
-            c.Request.URL.Path, // exactly as sent; no normalisation
-            hex.EncodeToString(sum[:]),
-            tsStr,
-            nonce,
-        }, "\n")
+            c.Request.URL.Path, // exactly as sent; no query string, no normalisation
+            deviceID.String(),
+            timestamp,
+            deviceNonce,
+            rawBody,            // captured BEFORE JSON parsing
+        )
 
-        dev, err := devices.ByID(c.Request.Context(), deviceID)
-        if err != nil || dev.Status != domain.DeviceActive {
-            abort(c, http.StatusForbidden, "device_revoked_or_unknown")
-            return
+        dev, err := lookup(c.Request.Context(), deviceID)
+        // unknown and revoked collapse to one 403 DEVICE_REVOKED, so a caller
+        // cannot confirm that a device id exists
+        if dev.PublicKey == "" {
+            // DEVICE_KEY_NOT_REGISTERED: every device is in this state between
+            // login and POST /devices
         }
 
-        if !platform.VerifyDeviceSignature(dev.Algorithm, dev.PublicKey, []byte(canonical), sigB64) {
-            audit.Anomaly(c, "device_signature_invalid", deviceID)
-            abort(c, http.StatusUnauthorized, "device_signature_invalid")
-            return
+        if err := devicekey.Verify(pub, []byte(canonical), signature); err != nil {
+            // DEVICE_SIGNATURE_INVALID
         }
 
         // Consume the nonce only AFTER the signature verifies, so a flood of
-        // unsigned requests cannot fill the cache.
-        if !nonces.Consume(c.Request.Context(), deviceID, nonce, maxSkew*2) {
-            audit.Anomaly(c, "device_nonce_replayed", deviceID)
-            abort(c, http.StatusConflict, "device_nonce_replayed")
-            return
+        // unsigned requests cannot fill the cache and evict legitimate nonces.
+        if !nonces.Consume(deviceID.String()+":"+deviceNonce, 2*maxSkew, time.Now()) {
+            // 409 DEVICE_NONCE_REPLAYED
         }
 
         c.Next()
     }
 }
 ```
+
+`devicekey.Verify` accepts both the ASN.1 DER encoding that browsers produce and the raw
+`r||s` (P1363) encoding that some embedded WebCrypto runtimes emit — see the package comment
+and `devicekey_test.go`, which pins a signature produced outside Go.
 
 #### 4.4.1 Replay prevention
 

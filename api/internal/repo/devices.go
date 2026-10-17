@@ -109,6 +109,50 @@ func (r *Devices) TouchSeen(ctx context.Context, q Querier, id uuid.UUID, at tim
 	return nil
 }
 
+// BindPublicKey attaches a public key to a device that has not yet proved
+// possession of one.
+//
+// The `public_key = ”` predicate is the important part, and it is deliberate:
+// it makes this a one-way, first-write-wins operation. Without it, anyone
+// holding a stolen access token could re-register their own key against a device
+// id and every subsequent push would verify — silently defeating the whole
+// device control. A device that already has a key must go through an admin.
+//
+// Returns true when a row was updated. False means the device either already has
+// a key or is revoked; the service distinguishes those by reading the row.
+func (r *Devices) BindPublicKey(
+	ctx context.Context,
+	q Querier,
+	id uuid.UUID,
+	publicKey, publicKeyAlg, fingerprint string,
+	name, platform, appVersion *string,
+) (bool, error) {
+	const sql = `
+        UPDATE devices
+           SET public_key     = $2,
+               public_key_alg = $3,
+               fingerprint    = $4,
+               name           = COALESCE($5, name),
+               platform       = COALESCE($6, platform),
+               app_version    = COALESCE($7, app_version),
+               updated_at     = now()
+         WHERE id = $1
+           AND revoked_at IS NULL
+           AND public_key = ''`
+
+	tag, err := q.Exec(ctx, sql, id, publicKey, publicKeyAlg, fingerprint, name, platform, appVersion)
+	if err != nil {
+		// The same key enrolled on a second device is a real conflict: two device
+		// rows sharing a private key destroys per-device revocation.
+		if isUniqueViolation(err) {
+			return false, fmt.Errorf("%w: this public key is already registered to another device",
+				domain.ErrConflict)
+		}
+		return false, fmt.Errorf("bind device public key: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // Revoke marks a device unusable and records why.
 func (r *Devices) Revoke(ctx context.Context, q Querier, id, by uuid.UUID, reason string, at time.Time) error {
 	const sql = `

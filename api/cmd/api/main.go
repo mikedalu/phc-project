@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/mikedalu/phc-records/api/internal/config"
+	"github.com/mikedalu/phc-records/api/internal/domain"
 	"github.com/mikedalu/phc-records/api/internal/http/handler"
 	"github.com/mikedalu/phc-records/api/internal/http/httpx"
 	"github.com/mikedalu/phc-records/api/internal/http/middleware"
@@ -90,7 +91,10 @@ func run() error {
 	authSvc := service.NewAuth(pool, issuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	authHandler := handler.NewAuth(authSvc)
 
-	router := buildRouter(cfg, pool, authHandler, issuer)
+	deviceSvc := service.NewDevices(pool)
+	deviceHandler := handler.NewDevices(deviceSvc)
+
+	router := buildRouter(cfg, pool, authHandler, deviceHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -150,7 +154,7 @@ func run() error {
 
 // buildRouter wires middleware and routes. Kept separate from run so tests can
 // construct a router without starting a server.
-func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, issuer *token.Issuer) *gin.Engine {
+func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Auth, deviceHandler *handler.Devices, issuer *token.Issuer) *gin.Engine {
 	router := gin.New()
 
 	// Recovery must come first so a panic in any later middleware is caught.
@@ -234,6 +238,20 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 	{
 		authed.GET("/auth/session", authHandler.Session)
 		authed.POST("/auth/change-password", authHandler.ChangePassword)
+
+		// Device identity. Registration is how a device that can already log in
+		// earns the right to sign sync pushes; the service refuses a key swap on
+		// a device that already has one.
+		authed.POST("/devices", deviceHandler.Register)
+	}
+
+	// ─── administration ────────────────────────────────────────────
+	// RequireRole is a cheap early exit; the service re-checks the role against
+	// the database, because the token's role can be 15 minutes stale.
+	admin := v1.Group("/admin")
+	admin.Use(middleware.RequireAuth(issuer), middleware.RequireRole(domain.RoleAdmin))
+	{
+		admin.POST("/devices/:id/revoke", deviceHandler.Revoke)
 	}
 
 	// /meta is what the client calls at boot: everything it needs to configure
