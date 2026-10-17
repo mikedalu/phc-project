@@ -245,7 +245,7 @@ gcloud run deploy "$SERVICE" \
   --project "$PROJECT_ID" \
   --region "$REGION" \
   --allow-unauthenticated \
-  --max-instances 5 \
+  --max-instances 1 \
   --min-instances 0 \
   --memory 512Mi \
   --cpu 1 \
