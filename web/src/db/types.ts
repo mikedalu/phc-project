@@ -242,6 +242,47 @@ export interface SessionRow {
   sessionId: string;
 }
 
+/**
+ * The offline sign-in credential. ONE row, `id = 'local'`.
+ *
+ * ═══ WHAT THIS IS, AND WHAT IT IS NOT ═══
+ *
+ * It is an Argon2id VERIFIER derived from the user's password plus a salt this
+ * device generated and has never transmitted. It is NOT the password, and it is
+ * NOT the server's password hash.
+ *
+ * Storing the server's hash would be a credential-equivalent leak: that hash is
+ * exactly what the server compares against, so anyone reading the local replica
+ * could present it at the login endpoint. Storing the plaintext is worse. A
+ * verifier with a device-only salt matches neither, so stealing it does not let
+ * an attacker replay it anywhere (docs/05-SECURITY.md §3).
+ *
+ * The honest residual risk: a device holding this can test password guesses
+ * offline, at Argon2id cost, forever. That is why there is an attempt counter and
+ * a lockout, and why the whole entry expires with the offline grace window.
+ */
+export interface OfflineCredentialRow {
+  id: 'local';
+  userId: string;
+  staffNumber: string;
+  displayName: string;
+  roles: string[];
+  /** base64url, 16 random bytes, generated HERE and never sent to the server. */
+  saltB64: string;
+  /** Argon2id output, lowercase hex. */
+  verifierHex: string;
+  /** Cost parameters as supplied by the server, so they can be raised centrally. */
+  params: { memoryKiB: number; iterations: number; parallelism: number };
+  /** Copied from the last ONLINE authentication; the offline window starts there. */
+  offlineGraceExpiresAt: string;
+  lastOnlineAuthAt: string;
+  createdAt: string;
+  /** Consecutive failed offline sign-ins, reset on success. */
+  failedAttempts: number;
+  /** ISO-8601. Set after too many failures; cleared when it passes. */
+  lockedUntil: string | null;
+}
+
 /** Generates a time-ordered UUID. The ONLY way IDs are created in this app. */
 export function newId(): string {
   return uuidv7();

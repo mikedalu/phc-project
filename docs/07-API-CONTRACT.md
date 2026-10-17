@@ -217,11 +217,32 @@ Revokes the refresh token family. `revokeDevice: true` additionally revokes the 
 
 ### `POST /auth/offline-verify` 🔓
 
-Used by the SPA on **first** login only to fetch the material needed for offline verification later. Returns the Argon2id parameters and a per-device salt so the client can derive its local verifier.
+Used by the SPA on **first** login only, to learn the Argon2id cost parameters it should use for
+its local offline verifier.
 
 ```json
-{ "data": { "salt": "base64...", "memoryKiB": 65536, "iterations": 3, "parallelism": 4 } }
+{
+  "data": {
+    "algorithm": "argon2id",
+    "version": 19,
+    "memoryKiB": 65536,
+    "iterations": 3,
+    "parallelism": 4,
+    "saltLengthBytes": 16,
+    "keyLengthBytes": 32
+  }
+}
 ```
+
+**No salt is returned, deliberately.** The salt is generated on the device (16 bytes from
+`crypto.getRandomValues`) and never transmitted, so the resulting verifier is not comparable to
+anything the server holds — not the password hash, not another device's verifier. The server's
+useful contribution is the **cost**: raise the parameters centrally and every device picks them up
+at its next online sign-in, with no client release.
+
+**WebAssembly needs a CSP opt-in.** `hash-wasm` compiles a WASM module at runtime, which
+`script-src 'self'` blocks. Without `'wasm-unsafe-eval'` in the policy, every offline sign-in fails
+silently and the failure looks like a wrong password.
 
 > The client derives its **own** verifier from the password; the server never sends a password hash. Offline verification is then a local Argon2id computation. See `05-SECURITY.md` §3.
 

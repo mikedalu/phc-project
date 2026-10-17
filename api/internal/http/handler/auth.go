@@ -19,6 +19,7 @@ import (
 	"github.com/mikedalu/phc-records/api/internal/domain"
 	"github.com/mikedalu/phc-records/api/internal/http/httpx"
 	"github.com/mikedalu/phc-records/api/internal/http/middleware"
+	"github.com/mikedalu/phc-records/api/internal/platform/password"
 	"github.com/mikedalu/phc-records/api/internal/service"
 )
 
@@ -230,6 +231,47 @@ func roleStrings(roles []domain.Role) []string {
 		out = append(out, r.String())
 	}
 	return out
+}
+
+// offlineVerifyResponse tells the client how to derive its local verifier.
+//
+// ═══ NO SALT IS RETURNED, DELIBERATELY ═══
+//
+// The contract used to say the server issues a per-device salt. It does not, and
+// should not: the salt is part of what makes the verifier a DEVICE artifact. The
+// client generates 16 random bytes locally (docs/05-SECURITY.md §3, step 5), so
+// the verifier is not comparable to anything the server holds — not the password
+// hash, not another device's verifier.
+//
+// What the server DOES control is the COST. That is the useful half: raise
+// Argon2id parameters centrally and every device picks them up at its next
+// online sign-in, with no client release.
+type offlineVerifyResponse struct {
+	Algorithm       string `json:"algorithm"`
+	Version         int    `json:"version"`
+	MemoryKiB       uint32 `json:"memoryKiB"`
+	Iterations      uint32 `json:"iterations"`
+	Parallelism     uint8  `json:"parallelism"`
+	SaltLengthBytes uint32 `json:"saltLengthBytes"`
+	KeyLengthBytes  uint32 `json:"keyLengthBytes"`
+}
+
+// OfflineVerify handles POST /api/v1/auth/offline-verify.
+//
+// Unauthenticated on purpose: a device that cannot reach the login endpoint
+// cannot present a token either, and the response contains no secret — only the
+// cost parameters, which are already visible in every stored password hash.
+func (h *Auth) OfflineVerify(c *gin.Context) {
+	p := password.DefaultParams
+	httpx.OK(c, offlineVerifyResponse{
+		Algorithm:       "argon2id",
+		Version:         password.Version,
+		MemoryKiB:       p.Memory,
+		Iterations:      p.Iterations,
+		Parallelism:     p.Parallelism,
+		SaltLengthBytes: p.SaltLength,
+		KeyLengthBytes:  p.KeyLength,
+	})
 }
 
 // ChangePassword handles POST /api/v1/auth/change-password.

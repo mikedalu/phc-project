@@ -5,6 +5,7 @@ import type {
   HouseholdRow,
   LocalConflict,
   NumberCounter,
+  OfflineCredentialRow,
   OutboxEntry,
   PatientRow,
   SessionRow,
@@ -49,6 +50,7 @@ export const db = new Dexie('phc_records') as Dexie & {
   numberCounters: EntityTable<NumberCounter, 'key'>;
   deviceKeys: EntityTable<DeviceKeyRow, 'id'>;
   session: EntityTable<SessionRow, 'key'>;
+  localCredentials: EntityTable<OfflineCredentialRow, 'id'>;
 };
 
 db.version(1).stores({
@@ -109,6 +111,17 @@ db.version(2).stores({
  */
 db.version(3).stores({
   session: 'key',
+});
+
+/**
+ * v4 — the offline sign-in verifier.
+ *
+ * Kept OUT of the `session` row on purpose. Logging out deletes the session;
+ * the verifier must survive, or "sign out and back in while offline" — the exact
+ * flow a shared workstation needs — would be impossible.
+ */
+db.version(4).stores({
+  localCredentials: 'id, userId',
 });
 
 /**

@@ -233,6 +233,9 @@ func buildRouter(cfg *config.Config, pool *pgxpool.Pool, authHandler *handler.Au
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/refresh", authHandler.Refresh)
 		auth.POST("/logout", authHandler.Logout)
+		// Tells a device how to derive its offline verifier. No secret in the
+		// response — see the handler for why no salt is returned.
+		auth.POST("/offline-verify", authHandler.OfflineVerify)
 	}
 
 	// ─── authentication (protected) ────────────────────────────────

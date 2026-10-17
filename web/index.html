@@ -8,6 +8,13 @@
          See docs/05-SECURITY.md §6.4: the point is that a compromised
          dependency cannot exfiltrate the local replica to an arbitrary host.
 
+         `script-src` needs `'wasm-unsafe-eval'` for the Argon2id offline
+         verifier: hash-wasm compiles a WebAssembly module at runtime, and
+         WebAssembly instantiation counts as script evaluation. WITHOUT it the
+         offline sign-in silently fails every time, and the failure looks like a
+         broken password rather than a policy. It permits WASM and NOT `eval`,
+         which is the narrow permission.
+
          `connect-src` needs an explicit entry for the Cloud Run API because the
          SPA and the API are on different origins. VITE_API_ORIGIN supplies the
          COMPLETE source list (including 'self'), so there is one place to get it
@@ -22,7 +29,7 @@
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self';
-               script-src 'self';
+               script-src 'self' 'wasm-unsafe-eval';
                style-src 'self' 'unsafe-inline';
                img-src 'self' data: blob:;
                font-src 'self';

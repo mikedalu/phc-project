@@ -4,6 +4,11 @@ import { nowIso, type SessionRow } from '@/db/types';
 import { ApiError, configureAuth, type RefreshOutcome } from '@/lib/api';
 import { loadOrCreateDeviceKey, markDeviceRegistered } from '@/sync/deviceKey';
 import * as authApi from './api';
+import {
+  enrolOfflineCredential,
+  refreshOfflineCredentialMetadata,
+  verifyOfflinePassword,
+} from './offlineCredentials';
 import { APP_VERSION, describeDevice, describePlatform } from './device-label';
 
 /**
@@ -82,6 +87,25 @@ function toSnapshot(row: SessionRow): SessionUser {
  * Called by login, by refresh (which ROTATES the refresh token, so the stored
  * copy must be replaced every time), and by revalidation.
  */
+/**
+ * Written when an offline sign-in cannot proceed. A distinct type so the login
+ * screen can show the right sentence instead of "something went wrong".
+ */
+export class OfflineSignInError extends Error {
+  readonly code:
+    | 'NO_CREDENTIAL'
+    | 'WRONG_PASSWORD'
+    | 'LOCKED'
+    | 'WRONG_STAFF_NUMBER'
+    | 'NOT_ENROLLED';
+
+  constructor(code: OfflineSignInError['code'], message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'OfflineSignInError';
+  }
+}
+
 async function persistSession(result: authApi.LoginResult): Promise<void> {
   const row: SessionRow = {
     key: 'current',
@@ -164,29 +188,118 @@ export async function signIn(input: { staffNumber: string; password: string }): 
   // token only becomes available to apiFetch once the store holds it.
   await persistSession(data);
 
-  if (key.registered) {
+  if (!key.registered) {
+    try {
+      await authApi.registerDeviceKey({
+        deviceId: key.deviceId,
+        publicKey: key.publicKeyB64,
+        label: describeDevice(),
+        platform: describePlatform(),
+        appVersion: APP_VERSION,
+      });
+      await markDeviceRegistered();
+      useSession.setState({ deviceKeyRegistered: true });
+    } catch (error) {
+      // NOT fatal, and deliberately not rethrown. The user is signed in and can
+      // read the local replica; only pushing is blocked until the key lands. A
+      // failed key registration that logged the user out would be a worse outcome
+      // than a device that cannot sync for one session.
+      console.warn('Device key registration failed; will retry at the next sign-in.', error);
+      useSession.setState({ deviceKeyRegistered: false });
+    }
+  } else {
     useSession.setState({ deviceKeyRegistered: true });
-    return;
   }
 
+  // Enrol for offline sign-in. This is the ONLY moment the plaintext password is
+  // available, so it is the only moment a verifier can be derived.
   try {
-    await authApi.registerDeviceKey({
-      deviceId: key.deviceId,
-      publicKey: key.publicKeyB64,
-      label: describeDevice(),
-      platform: describePlatform(),
-      appVersion: APP_VERSION,
+    await enrolOfflineCredential({
+      userId: data.user.id,
+      staffNumber: data.user.staffNumber,
+      displayName: `${data.user.firstName} ${data.user.lastName}`.trim(),
+      roles: data.user.roles,
+      offlineGraceExpiresAt: data.offlineGraceExpiresAt,
+      password: input.password,
     });
-    await markDeviceRegistered();
-    useSession.setState({ deviceKeyRegistered: true });
   } catch (error) {
-    // NOT fatal, and deliberately not rethrown. The user is signed in and can
-    // read the local replica; only pushing is blocked until the key lands. A
-    // failed key registration that logged the user out would be a worse outcome
-    // than a device that cannot sync for one session.
-    console.warn('Device key registration failed; will retry at the next sign-in.', error);
-    useSession.setState({ deviceKeyRegistered: false });
+    // Same reasoning as above: the user is signed in, and a missing verifier only
+    // means the NEXT sign-in cannot be done offline.
+    console.warn('Offline credential enrolment failed.', error);
   }
+}
+
+/**
+ * Signs in with no network, using the device's stored verifier.
+ *
+ * The resulting session has NO refresh token — the server never issued one — so
+ * it cannot sync. It exists to let the device keep being usable for the rest of
+ * its server-issued grace window. When the deadline passes, the banner blocks
+ * writes; when the device reconnects, the user signs in online and sync resumes.
+ */
+export async function signInOffline(input: {
+  staffNumber: string;
+  password: string;
+}): Promise<void> {
+  const attempt = await verifyOfflinePassword(input.password);
+
+  if (!attempt.ok) {
+    switch (attempt.reason) {
+      case 'no_credential':
+        throw new OfflineSignInError(
+          'NO_CREDENTIAL',
+          'This device has not been set up for offline sign-in. Sign in once while connected.',
+        );
+      case 'locked':
+        throw new OfflineSignInError(
+          'LOCKED',
+          'Too many failed offline attempts. Wait 15 minutes, or connect and sign in online.',
+        );
+      default:
+        throw new OfflineSignInError('WRONG_PASSWORD', 'That password does not match this device.');
+    }
+  }
+
+  const credential = attempt.credential;
+
+  // Checked AFTER the password so a wrong staff number cannot be probed for free,
+  // but it still stops "any password works as any user" on a shared workstation.
+  if (credential.staffNumber.toLowerCase() !== input.staffNumber.trim().toLowerCase()) {
+    throw new OfflineSignInError(
+      'WRONG_STAFF_NUMBER',
+      `This device is enrolled for ${credential.staffNumber}, not that account.`,
+    );
+  }
+
+  const key = await loadOrCreateDeviceKey();
+
+  const row: SessionRow = {
+    key: 'current',
+    userId: credential.userId,
+    staffNumber: credential.staffNumber,
+    displayName: credential.displayName,
+    roles: credential.roles,
+    // Empty, deliberately: no server token exists, so this session cannot sync
+    // or call authenticated endpoints. That is the honest representation.
+    refreshToken: '',
+    deviceId: key.deviceId,
+    offlineGraceExpiresAt: credential.offlineGraceExpiresAt,
+    lastOnlineAuthAt: credential.lastOnlineAuthAt,
+    sessionId: '',
+  };
+
+  await db.session.put(row);
+
+  useSession.setState({
+    status: 'authenticated',
+    user: toSnapshot(row),
+    accessToken: null,
+    refreshToken: '',
+    offlineGraceExpiresAt: row.offlineGraceExpiresAt,
+    lastOnlineAuthAt: row.lastOnlineAuthAt,
+    deviceKeyRegistered: key.registered,
+    deviceRevoked: false,
+  });
 }
 
 let refreshInFlight: Promise<RefreshOutcome> | null = null;
@@ -212,8 +325,13 @@ export function refreshAccessToken(): Promise<RefreshOutcome> {
 
 async function doRefresh(): Promise<RefreshOutcome> {
   const { refreshToken, user } = useSession.getState();
+
+  // An EMPTY refresh token means this is an offline-only session. That is not
+  // evidence the session is dead — it is evidence there is nothing to refresh
+  // with — so it must NOT trigger sign-out. Reporting 'dead' here would log a
+  // nurse out the moment her device regained a signal.
   if (!refreshToken || !user) {
-    return { token: null, reason: 'dead' };
+    return { token: null, reason: 'offline' };
   }
 
   try {
@@ -287,6 +405,11 @@ export async function signOut(): Promise<void> {
 export async function revalidateSession(): Promise<void> {
   if (useSession.getState().status !== 'authenticated') return;
 
+  // Offline-only session (signed in with the local verifier). There is nothing
+  // to revalidate against, and calling the API would 401 and sign the user out
+  // for the crime of reconnecting.
+  if (!useSession.getState().refreshToken) return;
+
   try {
     const { data } = await authApi.fetchSession();
 
@@ -312,6 +435,13 @@ export async function revalidateSession(): Promise<void> {
       offlineGraceExpiresAt: updated.offlineGraceExpiresAt,
       lastOnlineAuthAt: updated.lastOnlineAuthAt,
       mustChangePassword: data.user.mustChangePassword,
+    });
+
+    // Keep the offline verifier's cached window and roles in step, so a device
+    // that goes offline tomorrow signs in with today's deadline, not last week's.
+    await refreshOfflineCredentialMetadata({
+      roles: data.roles,
+      offlineGraceExpiresAt: data.offlineGraceExpiresAt,
     });
   } catch (error) {
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {

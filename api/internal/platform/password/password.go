@@ -46,6 +46,13 @@ type Params struct {
 	KeyLength   uint32
 }
 
+// Version is the Argon2 version encoded in every hash we produce (`v=19`).
+//
+// Exposed so the offline-verifier endpoint can tell the client which version to
+// use. A mismatch between this and the client's WASM implementation produces a
+// verifier that never matches, which looks like a wrong password.
+const Version = 19
+
 // DefaultParams is the current target cost.
 var DefaultParams = Params{
 	Memory:      64 * 1024, // 64 MiB

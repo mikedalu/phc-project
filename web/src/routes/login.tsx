@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoute, redirect, useRouter } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { ApiError } from '@/lib/api';
-import { useSession, signIn } from '@/features/auth/session';
+import { useSession, signIn, signInOffline, OfflineSignInError } from '@/features/auth/session';
+import { readOfflineCredential } from '@/features/auth/offlineCredentials';
 import { describeDevice } from '@/features/auth/device-label';
 
 /**
@@ -52,6 +53,24 @@ function LoginPage() {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
+  const [enrolledStaffNumber, setEnrolledStaffNumber] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    void readOfflineCredential().then((credential) => {
+      setEnrolledStaffNumber(credential?.staffNumber ?? null);
+    });
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   const {
     register,
@@ -67,7 +86,24 @@ function LoginPage() {
     setSubmitting(true);
 
     try {
-      await signIn({ staffNumber: values.staffNumber, password: values.password });
+      if (!navigator.onLine) {
+        await signInOffline({ staffNumber: values.staffNumber, password: values.password });
+      } else {
+        try {
+          await signIn({ staffNumber: values.staffNumber, password: values.password });
+        } catch (error) {
+          // A dropped connection is not a rejected password. Fall back to the
+          // device verifier rather than telling the user their credentials are
+          // wrong while the wifi is out.
+          if (error instanceof ApiError && error.isOffline) {
+            await signInOffline({ staffNumber: values.staffNumber, password: values.password });
+            setOffline(true);
+          } else {
+            throw error;
+          }
+        }
+      }
+
       await router.navigate({ to: '/' });
     } catch (error) {
       setFormError(describeLoginError(error));
@@ -98,6 +134,27 @@ function LoginPage() {
             <LockKeyhole aria-hidden="true" className="size-4 text-text-muted" />
             <h2 className="text-md font-medium text-text">Sign in</h2>
           </div>
+
+          {offline ? (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-sm border border-warning/30 bg-warning-soft p-3 text-sm text-warning-fg"
+            >
+              <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <span>
+                No connection. Signing in with this device&rsquo;s stored verifier
+                {enrolledStaffNumber ? ` as ${enrolledStaffNumber}` : ''}. Work you do is kept
+                locally and syncs when the connection returns.
+              </span>
+            </div>
+          ) : null}
+
+          {!offline && enrolledStaffNumber ? (
+            <p className="text-xs text-text-muted">
+              Offline sign-in on this device is set up for{' '}
+              <span className="font-mono">{enrolledStaffNumber}</span>.
+            </p>
+          ) : null}
 
           {formError ? (
             <div
@@ -171,6 +228,19 @@ function LoginPage() {
  * no instruction is a support call; "try again in a few minutes" is not.
  */
 function describeLoginError(error: unknown): string {
+  if (error instanceof OfflineSignInError) {
+    switch (error.code) {
+      case 'NO_CREDENTIAL':
+        return 'This device has not been set up for offline sign-in. Connect to the internet and sign in once, then it will work offline.';
+      case 'LOCKED':
+        return 'Too many failed offline attempts. Wait 15 minutes, or connect and sign in online.';
+      case 'WRONG_STAFF_NUMBER':
+        return error.message;
+      default:
+        return 'That password does not match this device.';
+    }
+  }
+
   if (error instanceof ApiError) {
     switch (error.code) {
       case 'ACCOUNT_LOCKED':
