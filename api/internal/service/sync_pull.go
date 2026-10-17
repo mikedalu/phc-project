@@ -95,6 +95,15 @@ var tableColumns = map[string]string{
 	// device cannot recover from: its bootstrap silently skips the table, then
 	// adopts a cursor past every existing row, so the invoices never arrive at
 	// all. That exact gap hid the cashier's whole screen for a round.
+	"admissions": "id, patient_id, encounter_id, ward, bed_number, status, admitted_at, " +
+		"admitted_by, discharged_at, discharged_by, discharge_notes, invoice_id, " +
+		"revision, server_rev, sync_state, deleted_at, created_at, updated_at, " +
+		"created_by, updated_by",
+
+	"ward_charges": "id, admission_id, patient_id, charge_date, ward, unit_price_minor, " +
+		"amount_minor, invoice_id, charge_id, revision, server_rev, sync_state, deleted_at, " +
+		"created_at, updated_at, created_by, updated_by",
+
 	"prescriptions": "id, prescription_number, patient_id, encounter_id, prescription_type, " +
 		"status, prescribed_at, prescribed_by, invoice_id, notes, revision, server_rev, " +
 		"sync_state, deleted_at, created_at, updated_at, created_by, updated_by",

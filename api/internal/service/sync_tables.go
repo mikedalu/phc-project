@@ -771,6 +771,33 @@ var dispenseColumnsForSync = []columnSpec{
 	{Field: "notes", SQL: "notes", Kind: kindText},
 }
 
+// ─── ward ──────────────────────────────────────────────────────────
+
+var admissionColumnsForSync = []columnSpec{
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "encounterId", SQL: "encounter_id", Kind: kindUUID, Required: true},
+	{Field: "ward", SQL: "ward", Kind: kindText, Required: true},
+	{Field: "bedNumber", SQL: "bed_number", Kind: kindText},
+	{Field: "status", SQL: "status", Kind: kindText},
+	{Field: "admittedAt", SQL: "admitted_at", Kind: kindTimestamp},
+	{Field: "admittedBy", SQL: "admitted_by", Kind: kindUUID},
+	{Field: "dischargedAt", SQL: "discharged_at", Kind: kindTimestamp},
+	{Field: "dischargedBy", SQL: "discharged_by", Kind: kindUUID},
+	{Field: "dischargeNotes", SQL: "discharge_notes", Kind: kindText},
+	{Field: "invoiceId", SQL: "invoice_id", Kind: kindUUID},
+}
+
+var wardChargeColumnsForSync = []columnSpec{
+	{Field: "admissionId", SQL: "admission_id", Kind: kindUUID, Required: true},
+	{Field: "patientId", SQL: "patient_id", Kind: kindUUID, Required: true},
+	{Field: "chargeDate", SQL: "charge_date", Kind: kindDate, Required: true},
+	{Field: "ward", SQL: "ward", Kind: kindText},
+	{Field: "unitPriceMinor", SQL: "unit_price_minor", Kind: kindInt64},
+	{Field: "amountMinor", SQL: "amount_minor", Kind: kindInt64},
+	{Field: "invoiceId", SQL: "invoice_id", Kind: kindUUID},
+	{Field: "chargeId", SQL: "charge_id", Kind: kindUUID},
+}
+
 var householdColumnsForSync = []columnSpec{
 	{Field: "familyName", SQL: "family_name", Kind: kindText, Required: true},
 	{Field: "headPatientId", SQL: "head_patient_id", Kind: kindUUID},

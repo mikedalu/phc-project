@@ -244,6 +244,36 @@ export interface DispenseRow extends BaseRow {
   notes: string | null;
 }
 
+/** One stay in the ward. */
+export interface AdmissionRow extends BaseRow {
+  patientId: string;
+  encounterId: string;
+  ward: string;
+  bedNumber: string | null;
+  status: 'admitted' | 'discharged' | 'transferred';
+  admittedAt: string;
+  admittedBy: string;
+  dischargedAt: string | null;
+  dischargedBy: string | null;
+  dischargeNotes: string | null;
+  invoiceId: string | null;
+}
+
+/**
+ * One billable NIGHT. `chargeDate` plus the admission identifies it — the same
+ * night must never be billed twice, on any device.
+ */
+export interface WardChargeRow extends BaseRow {
+  admissionId: string;
+  patientId: string;
+  chargeDate: string;
+  ward: string;
+  unitPriceMinor: number;
+  amountMinor: number;
+  invoiceId: string | null;
+  chargeId: string | null;
+}
+
 export interface VitalsRow extends BaseRow {
   patientId: string;
   encounterId: string | null;

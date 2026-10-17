@@ -30,6 +30,8 @@ export const SYNCED_TABLES = [
   'prescriptions',
   'prescription_items',
   'dispenses',
+  'admissions',
+  'ward_charges',
 ] as const;
 
 export type SyncedTableName = (typeof SYNCED_TABLES)[number];
@@ -52,5 +54,7 @@ export function syncedTableHandles() {
     db.prescriptions,
     db.prescription_items,
     db.dispenses,
+    db.admissions,
+    db.ward_charges,
   ];
 }

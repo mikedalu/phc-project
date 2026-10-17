@@ -3,6 +3,7 @@ import type {
   DeviceKeyRow,
   DispenseRow,
   DiagnosisRow,
+  AdmissionRow,
   AllocationRow,
   ChargeRow,
   EncounterRow,
@@ -21,6 +22,7 @@ import type {
   SessionRow,
   SyncMeta,
   SyncProbeRow,
+  WardChargeRow,
   VitalsRow,
 } from './types';
 
@@ -63,6 +65,8 @@ export const db = new Dexie('phc_records') as Dexie & {
   prescriptions: EntityTable<PrescriptionRow, 'id'>;
   prescription_items: EntityTable<PrescriptionItemRow, 'id'>;
   dispenses: EntityTable<DispenseRow, 'id'>;
+  admissions: EntityTable<AdmissionRow, 'id'>;
+  ward_charges: EntityTable<WardChargeRow, 'id'>;
 
   // ── local-only infrastructure (never synced) ────────────────────────
   outbox: EntityTable<OutboxEntry, 'id'>;
@@ -189,6 +193,11 @@ db.version(5).stores({
  * allocations on every render, for the same reason as on the server: a stored
  * balance is right until two devices write at once.
  */
+db.version(12).stores({
+  admissions: 'id, patientId, encounterId, status, admittedAt, serverRev, syncState',
+  ward_charges: 'id, admissionId, patientId, chargeDate, serverRev, syncState',
+});
+
 db.version(11).stores({
   prescriptions: 'id, patientId, encounterId, status, prescribedAt, serverRev, syncState',
   prescription_items: 'id, prescriptionId, serverRev, syncState',

@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Stethoscope,
   Banknote,
+  BedDouble,
   Pill,
   FlaskConical,
   Home,
@@ -59,6 +60,12 @@ export const ROLE_NAV: NavEntry[] = [
     label: 'Laboratory',
     icon: FlaskConical,
     roles: ['lab_scientist', 'doctor', 'nurse', 'admin'],
+  },
+  {
+    to: '/ward',
+    label: 'Ward',
+    icon: BedDouble,
+    roles: ['nurse', 'doctor', 'admin'],
   },
   {
     to: '/pharmacy',

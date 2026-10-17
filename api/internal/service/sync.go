@@ -102,6 +102,26 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 			sync:       s.sync,
 			now:        s.now,
 		},
+		"admissions": &lwwApplier{
+			table:   "admissions",
+			columns: admissionColumnsForSync,
+			sync:    s.sync,
+			now:     s.now,
+		},
+		// A billed night is a FACT. Only the unique index on
+		// (admission_id, charge_date) can decide between two racing devices, so
+		// this applier must not "merge" anything.
+		"ward_charges": &appendOnlyApplier{
+			insert: &lwwApplier{
+				table:   "ward_charges",
+				columns: wardChargeColumnsForSync,
+				sync:    s.sync,
+				now:     s.now,
+			},
+			sync: s.sync,
+			now:  s.now,
+		},
+
 		"prescriptions": &lwwApplier{
 			table:      "prescriptions",
 			columns:    prescriptionColumnsForSync,

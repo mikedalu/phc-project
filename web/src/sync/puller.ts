@@ -1,5 +1,6 @@
 import { db } from '@/db';
 import type {
+  AdmissionRow,
   AllocationRow,
   ChargeRow,
   DiagnosisRow,
@@ -14,6 +15,7 @@ import type {
   LabResultRow,
   PatientRow,
   SyncProbeRow,
+  WardChargeRow,
   VitalsRow,
 } from '@/db/types';
 import { apiGet } from '@/lib/api';
@@ -140,6 +142,8 @@ const ADAPTERS: Record<string, { table: RowStore; adapt: (raw: Record<string, un
   prescriptions: { table: db.prescriptions as unknown as RowStore, adapt: toPrescriptionRow },
   prescription_items: { table: db.prescription_items as unknown as RowStore, adapt: toPrescriptionItemRow },
   dispenses: { table: db.dispenses as unknown as RowStore, adapt: toDispenseRow },
+  admissions: { table: db.admissions as unknown as RowStore, adapt: toAdmissionRow },
+  ward_charges: { table: db.ward_charges as unknown as RowStore, adapt: toWardChargeRow },
   vitals: { table: db.vitals as unknown as RowStore, adapt: toVitalsRow },
 };
 
@@ -230,6 +234,14 @@ export function toPrescriptionItemRow(raw: Record<string, unknown>): Prescriptio
 
 export function toDispenseRow(raw: Record<string, unknown>): DispenseRow {
   return toSynced<DispenseRow>(raw);
+}
+
+export function toAdmissionRow(raw: Record<string, unknown>): AdmissionRow {
+  return toSynced<AdmissionRow>(raw);
+}
+
+export function toWardChargeRow(raw: Record<string, unknown>): WardChargeRow {
+  return toSynced<WardChargeRow>(raw);
 }
 
 export function toPaymentRow(raw: Record<string, unknown>): PaymentRow {
