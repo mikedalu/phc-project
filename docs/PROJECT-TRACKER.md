@@ -31,7 +31,7 @@ Update this table the moment a sprint closes. It is the first thing to show your
 |---|---|---|---|---|---|---|---|
 | 0 | Foundations & walking skeleton | ✅ | | | 30 | 97% | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending |
 | 1 | Auth, roles & device identity | ✅ | | | 17 | 100% | **All deliverables met.** Login, session, refresh, device identity, role nav, guards, offline grace, offline sign-in, staff administration, 8 demo accounts, RBAC route matrix. Only Playwright (0.25, shared with Sprint 0) is outstanding and is not a Sprint 1 deliverable |
-| 2 | Sync engine | 🟡 | | | | 96% | **End to end and demonstrated with two browsers.** Server: push, pull, snapshot, conflicts, redaction. Client: `localWrite`, outbox drain with signing and backoff, pull applier with cursor commit, reconnect detection, `/dev/sync`, status indicator, Vitest. Remaining: Playwright two-browser E2E |
+| 2 | Sync engine | ✅ | | | | 100% | **Complete.** Server push/pull/snapshot with idempotency, LWW, conflicts, redaction and cursor semantics. Client engine with `localWrite`, signing, backoff, cursor commit. **Two-browser E2E automated in Playwright and stable across runs** |
 | 3 | Patient registration (individual & family) | ⬜ | | | | | |
 | 4 | Queue, vitals & triage | ⬜ | | | | | |
 | 5 | Consultation, diagnosis & lab | ⬜ | | | | | |
@@ -97,7 +97,7 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 0.22 | Health-check page rendering `GET /meta` | FE | ✅ | 4 live checks incl. a Dexie probe; honest about what is not built |
 | 0.23 | Deploy web to Cloudflare Pages | INFRA | ✅ | Deployed by you. Pending confirmation that the build carries the Cloud Run URL (see 0.24) |
 | 0.24 | **End-to-end proof**: browser → API → Neon → browser | INFRA | 🟡 | Both halves deployed. **Needs one browser check:** Network tab must show a request to the `.run.app` host, not `localhost` |
-| 0.25 | Vitest + Playwright configured | TEST | 🟡 | Vitest configured (`vitest.config.ts`, `fake-indexeddb`, jsdom) with 5 tests. Playwright still not set up | Batch 4 |
+| 0.25 | Vitest + Playwright configured | TEST | ✅ | Vitest (jsdom + `fake-indexeddb`, 5 tests) and Playwright (`playwright.config.ts` starts BOTH the API and Vite, so a fresh clone runs `pnpm test:e2e` with no setup). First spec is the two-device sync test | Batch 4 |
 | 0.26 | `CLAUDE.md` + docs committed | DOCS | ✅ | Done during Sprint 0 planning |
 | 0.27 | **ADDED** `00004_seed_admin_user.sql` with a real, verified Argon2id hash | DB | ✅ | Not in the original plan; a fresh install needs a usable login |
 | 0.28 | **ADDED** drop the FKs on `facilities.created_by` / `updated_by` | DB | ✅ | Resolved a genuine circular FK — see decision **D13** |
@@ -172,7 +172,12 @@ A task is **not** done because the code runs on your machine. It is done when ev
 | 2.16 | Change-log writer on every mutation | BE | ✅ | Written inside the same transaction as the row write, by the applier. **Verified:** 3 upserts + 1 delete for one row, each with actor and device |
 | 2.17 | Redaction layer in the pull builder | BE | ✅ | Explicit column allowlist per table, so `password_hash` is never selected; the deny-list pass is defence in depth. **Verified:** no `password`/`lockedUntil` anywhere in a users snapshot. Unit-tested under both naming conventions |
 | 2.18 | Change-log retention + `fullResyncRequired` | BE | 🟡 | The FLAG is done and verified (`cursor_expired`, `oldestAvailableSeq`). The pruning job itself is not written; `retention_days` is captured per scope |
-| 2.19 | Tests: two-browser sync, offline soak, idempotency | TEST | 🟡 | **8 unit tests** (5 Vitest + 3 earlier). Two-browser convergence verified manually in Chrome. Playwright still open 
+| 2.19 | Tests: two-browser sync, offline soak, idempotency | TEST | ✅ | Playwright added: two browser CONTEXTS (separate IndexedDB, separate device keys) converge in both directions and drain three offline writes. Vitest covers localWrite/backoff. **Stable over repeated runs.** 
+
+#### Sprint 2 retrospective
+- **Went well:** building the server half before any client code meant every client failure had one obvious place to look. The two-browser Playwright test found a bug no unit test would have.
+- **Went badly:** three of the push bugs (duplicate PK, JSONB/bytea, replay status) were only visible against a real database; none were type errors.
+- **Change next sprint:** write the E2E for a vertical slice as soon as the slice works, not at the end — the swallowed "Sync now" would otherwise have shipped.
 
 ### Sprint 3 — Patient registration
 | # | Task | Type | Status |
@@ -376,6 +381,7 @@ Record every decision that would be expensive to reverse. This is also the raw m
 | D44 | | The client commits the pull cursor **inside the same Dexie transaction** as the rows | Commit after, in a second transaction | If the tab closes between the two, committing first loses rows for ever; committing second re-applies them, which is harmless because an upsert must be idempotent. Always bias toward re-applying | 2 |
 | D45 | | `runSync` **pushes before it pulls**, always | Pull first, then push | Pulling first applies server rows over local pending edits that have not been sent, so a user watches their own work vanish and then reappear. Push-then-pull also matches `02-SYNC-PROTOCOL.md` rule 8 | 2 |
 | D46 | | A `rejected` operation is parked in `db.conflicts` and **never retried** | Retry until it succeeds; drop silently | Retrying for ever is a device that hammers the server and never drains. Dropping it loses a nurse's record with no trace. Parking it is the only option that is neither | 2 |
+| D47 | | `runSync` **queues** a request that arrives during a run | Silently drop it (single-flight only) | The E2E caught this: a "Sync now" press during the boot sync did nothing, and the user then waited up to 60 s for the poll. Single-flight protects against concurrent pushes; it must not turn a user's explicit request into a no-op | 2 |
 
 ---
 

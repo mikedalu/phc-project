@@ -24,6 +24,7 @@ const POLL_INTERVAL_MS = 60_000;
 
 let debounceTimer: number | null = null;
 let running = false;
+let queued = false;
 let started = false;
 
 /** Schedules a sync. Safe to call on every write. */
@@ -35,15 +36,41 @@ export function requestSync(delayMs = PUSH_DEBOUNCE_MS): void {
   }, delayMs);
 }
 
-/** Drains the outbox, then pulls. Single-flight. */
+/**
+ * Drains the outbox, then pulls. Single-flight, but a request that arrives
+ * DURING a run is remembered and honoured afterwards.
+ *
+ * ═══ WHY THE QUEUE MATTERS ═══
+ *
+ * Without it, a "Sync now" press that lands while the boot sync is still in
+ * flight is silently dropped — and the caller then waits up to 60 s for the poll.
+ * That is not a theoretical edge case: on a slow link the boot sync takes
+ * several seconds, which is exactly when an impatient user presses the button.
+ */
 export async function runSync(): Promise<void> {
-  if (running) return;
+  if (running) {
+    queued = true;
+    return;
+  }
   if (!navigator.onLine) return;
   if (!db.isOpen()) return;
 
   running = true;
   setEngineState({ syncing: true, lastError: null });
 
+  try {
+    do {
+      queued = false;
+      await runOnce();
+    } while (queued);
+
+    setEngineState({ syncing: false, lastError: null, lastSyncAt: Date.now() });
+  } finally {
+    running = false;
+  }
+}
+
+async function runOnce(): Promise<void> {
   try {
     // Push first, ALWAYS. Pulling first would apply server rows over local
     // pending edits that have not been sent yet, which then lose for no reason.
@@ -60,8 +87,6 @@ export async function runSync(): Promise<void> {
       }
       if (!outcome.hasMore) break;
     }
-
-    setEngineState({ syncing: false, lastError: null, lastSyncAt: Date.now() });
   } catch (error) {
     // A background loop must not throw an unhandled rejection; the indicator is
     // where the user learns about it.
@@ -69,8 +94,6 @@ export async function runSync(): Promise<void> {
       syncing: false,
       lastError: error instanceof Error ? error.message : String(error),
     });
-  } finally {
-    running = false;
   }
 }
 

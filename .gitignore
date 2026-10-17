@@ -74,3 +74,9 @@ pnpm-debug.log*
 
 # TypeScript incremental build output — regenerated on every tsc run
 *.tsbuildinfo
+
+# Playwright artifacts
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/.playwright/
