@@ -208,6 +208,42 @@ export interface AllocationRow extends BaseRow {
   allocatedBy: string;
 }
 
+/** A drug request. Its status tracks payment as well as dispensing. */
+export interface PrescriptionRow extends BaseRow {
+  prescriptionNumber: string;
+  patientId: string;
+  encounterId: string;
+  prescriptionType: 'opd' | 'inpatient' | 'discharge' | 'refill';
+  status: 'pending_payment' | 'paid' | 'partially_dispensed' | 'dispensed' | 'cancelled';
+  prescribedAt: string;
+  prescribedBy: string;
+  invoiceId: string | null;
+  notes: string | null;
+}
+
+export interface PrescriptionItemRow extends BaseRow {
+  prescriptionId: string;
+  drugName: string;
+  dose: string;
+  frequency: string;
+  durationDays: number | null;
+  quantityPrescribed: number;
+  route: string | null;
+  instructions: string | null;
+  chargeId: string | null;
+  unitPriceMinor: number;
+  amountMinor: number;
+}
+
+/** Stock left the shelf. Append-only. */
+export interface DispenseRow extends BaseRow {
+  prescriptionId: string;
+  patientId: string;
+  dispensedAt: string;
+  dispensedBy: string;
+  notes: string | null;
+}
+
 export interface VitalsRow extends BaseRow {
   patientId: string;
   encounterId: string | null;

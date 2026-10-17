@@ -33,7 +33,10 @@ export type SyncableTable =
   | 'invoices'
   | 'charges'
   | 'payments'
-  | 'payment_allocations';
+  | 'payment_allocations'
+  | 'prescriptions'
+  | 'prescription_items'
+  | 'dispenses';
 
 interface RowBase extends BaseRow {
   id: string;

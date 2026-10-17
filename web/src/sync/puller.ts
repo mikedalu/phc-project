@@ -3,8 +3,11 @@ import type {
   AllocationRow,
   ChargeRow,
   DiagnosisRow,
+  DispenseRow,
   InvoiceRow,
   PaymentRow,
+  PrescriptionItemRow,
+  PrescriptionRow,
   EncounterRow,
   HouseholdRow,
   LabOrderRow,
@@ -134,6 +137,9 @@ const ADAPTERS: Record<string, { table: RowStore; adapt: (raw: Record<string, un
   charges: { table: db.charges as unknown as RowStore, adapt: toChargeRow },
   payments: { table: db.payments as unknown as RowStore, adapt: toPaymentRow },
   payment_allocations: { table: db.payment_allocations as unknown as RowStore, adapt: toAllocationRow },
+  prescriptions: { table: db.prescriptions as unknown as RowStore, adapt: toPrescriptionRow },
+  prescription_items: { table: db.prescription_items as unknown as RowStore, adapt: toPrescriptionItemRow },
+  dispenses: { table: db.dispenses as unknown as RowStore, adapt: toDispenseRow },
   vitals: { table: db.vitals as unknown as RowStore, adapt: toVitalsRow },
 };
 
@@ -212,6 +218,18 @@ export function toInvoiceRow(raw: Record<string, unknown>): InvoiceRow {
 
 export function toChargeRow(raw: Record<string, unknown>): ChargeRow {
   return toSynced<ChargeRow>(raw);
+}
+
+export function toPrescriptionRow(raw: Record<string, unknown>): PrescriptionRow {
+  return toSynced<PrescriptionRow>(raw);
+}
+
+export function toPrescriptionItemRow(raw: Record<string, unknown>): PrescriptionItemRow {
+  return toSynced<PrescriptionItemRow>(raw);
+}
+
+export function toDispenseRow(raw: Record<string, unknown>): DispenseRow {
+  return toSynced<DispenseRow>(raw);
 }
 
 export function toPaymentRow(raw: Record<string, unknown>): PaymentRow {
