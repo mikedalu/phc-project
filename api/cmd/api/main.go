@@ -121,8 +121,11 @@ func run() error {
 	wardSvc := service.NewWard(pool)
 	wardHandler := handler.NewWard(wardSvc)
 
+	referralSvc := service.NewReferrals(pool, cfg.ReferralEncryptionKey, time.Duration(cfg.ReferralTTLHours)*time.Hour)
+	referralHandler := handler.NewReferrals(referralSvc)
+
 	router := buildRouter(cfg, pool, authHandler, deviceHandler, userHandler, syncHandler,
-		patientHandler, householdHandler, encounterHandler, consultationHandler, billingHandler, wardHandler, issuer)
+		patientHandler, householdHandler, encounterHandler, consultationHandler, billingHandler, wardHandler, referralHandler, issuer)
 
 	// ─── server ────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -195,6 +198,7 @@ func buildRouter(
 	consultationHandler *handler.Consultation,
 	billingHandler *handler.Billing,
 	wardHandler *handler.Ward,
+	referralHandler *handler.Referrals,
 	issuer *token.Issuer,
 ) *gin.Engine {
 	router := gin.New()
@@ -403,6 +407,20 @@ func buildRouter(
 	)
 	{
 		pharmacy.POST("/:id/dispense", consultationHandler.Dispense)
+	}
+
+	// ─── referrals ─────────────────────────────────────────────────
+	// Reading a referral is PUBLIC: the receiving facility has no account here.
+	// It sits outside RequireAuth deliberately.
+	v1.GET("/referrals/:token", referralHandler.Read)
+
+	referrals := v1.Group("/referrals")
+	referrals.Use(
+		middleware.RequireAuth(issuer),
+		middleware.RequireRole(domain.RoleDoctor, domain.RoleNurse, domain.RoleAdmin),
+	)
+	{
+		referrals.POST("", referralHandler.Create)
 	}
 
 	// ─── ward ──────────────────────────────────────────────────────

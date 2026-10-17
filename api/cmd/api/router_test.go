@@ -40,6 +40,10 @@ var publicRoutes = map[string]string{
 	"GET /api/v1/meta":                 "boot configuration; the client asks before it has a session",
 	"GET /health":                      "Cloud Run liveness probe",
 	"GET /ready":                       "Cloud Run readiness probe",
+	// The receiving facility has no account in this system and never will.
+	// Requiring a session would make the referral useless at the exact moment
+	// it matters — a stranger holding a printed QR code.
+	"GET /api/v1/referrals/:token": "the encrypted token IS the credential",
 }
 
 func testRouter(t *testing.T) *gin.Engine {
@@ -70,6 +74,7 @@ func testRouter(t *testing.T) *gin.Engine {
 		handler.NewConsultation(nil),
 		handler.NewBilling(nil),
 		handler.NewWard(nil),
+		handler.NewReferrals(nil),
 		issuer,
 	)
 }
