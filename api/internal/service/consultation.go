@@ -11,7 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/mikedalu/phc-records/api/internal/domain"
+	"github.com/mikedalu/phc-records/api/internal/platform/db"
 	"github.com/mikedalu/phc-records/api/internal/repo"
 )
 
@@ -156,6 +159,9 @@ type CreateLabOrderInput struct {
 	Indication  string
 	Priority    string
 	OrderNumber string
+	// TariffCode, when given, bills the test in the SAME transaction. Ordering a
+	// test and forgetting to bill it is how a clinic loses revenue quietly.
+	TariffCode string
 }
 
 // CreateLabOrder raises a test request.
@@ -241,11 +247,86 @@ func (s *Consultation) CreateLabOrder(ctx context.Context, in CreateLabOrderInpu
 		UpdatedBy:          actor.ID,
 	}
 
-	if err := s.repo.InsertLabOrder(ctx, s.pool, order); err != nil {
+	billing := repo.NewBilling()
+
+	var tariff *repo.Tariff
+	tariffCode := strings.TrimSpace(in.TariffCode)
+	if tariffCode != "" {
+		// A missing tariff is NOT an error: a clinic may order a test it has not
+		// priced yet, and refusing the order would send the patient home.
+		tariff, _ = billing.FindActiveTariff(ctx, s.pool, tariffCode)
+	}
+
+	if tariff == nil {
+		if err := s.repo.InsertLabOrder(ctx, s.pool, order); err != nil {
+			return nil, err
+		}
+		return order, nil
+	}
+
+	// The order and its bill are ONE transaction: an order that is invisible to
+	// the cashier is a test the patient never pays for, and a bill with no order
+	// is money for nothing.
+	invoice := &domain.Invoice{
+		ID:            uuid.New(),
+		InvoiceNumber: "",
+		PatientID:     patient.ID,
+		HouseholdID:   patient.HouseholdID,
+		EncounterID:   &encounter.ID,
+		InvoiceType:   "lab",
+		Status:        domain.InvoiceUnpaid,
+		TotalMinor:    tariff.UnitPriceMinor,
+		IssuedAt:      s.now(),
+		IssuedBy:      actor.ID,
+		CreatedBy:     actor.ID,
+		UpdatedBy:     actor.ID,
+	}
+
+	invoiceNumber, err := s.generateOrderNumber(ctx) // same generator family
+	if err != nil {
 		return nil, err
 	}
+	invoice.InvoiceNumber = strings.Replace(invoiceNumber, "/LAB/", "/INV/", 1)
+
+	charge := &domain.Charge{
+		ID:             uuid.New(),
+		InvoiceID:      invoice.ID,
+		PatientID:      patient.ID,
+		HouseholdID:    patient.HouseholdID,
+		ChargeType:     "lab",
+		TariffID:       &tariff.ID,
+		Description:    tariff.Name,
+		ReferenceID:    &order.ID,
+		ReferenceType:  strPtr("lab_order"),
+		Quantity:       1,
+		UnitPriceMinor: tariff.UnitPriceMinor,
+		AmountMinor:    tariff.UnitPriceMinor,
+		Status:         "active",
+		PostedAt:       s.now(),
+		CreatedBy:      actor.ID,
+		UpdatedBy:      actor.ID,
+	}
+
+	if txErr := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := s.repo.InsertLabOrder(ctx, tx, order); err != nil {
+			return err
+		}
+		if err := billing.InsertInvoice(ctx, tx, invoice); err != nil {
+			return err
+		}
+		if err := billing.InsertCharge(ctx, tx, charge); err != nil {
+			return err
+		}
+		return billing.LinkLabOrderToInvoice(ctx, tx, order.ID, invoice.ID, charge.ID)
+	}); txErr != nil {
+		return nil, txErr
+	}
+
+	order.InvoiceID = &invoice.ID
 	return order, nil
 }
+
+func strPtr(s string) *string { return &s }
 
 // LabOrdersForPatient lists a patient's orders.
 func (s *Consultation) LabOrdersForPatient(ctx context.Context, actorID, patientID uuid.UUID) ([]*domain.LabOrder, error) {

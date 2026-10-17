@@ -124,6 +124,8 @@ type labOrderRequest struct {
 	Indication  string `json:"clinicalIndication"`
 	Priority    string `json:"priority"`
 	OrderNumber string `json:"orderNumber"`
+	// TariffCode bills the test in the same transaction that creates it.
+	TariffCode string `json:"tariffCode"`
 }
 
 type labOrderDTO struct {
@@ -139,6 +141,8 @@ type labOrderDTO struct {
 	Status      string  `json:"status"`
 	OrderedAt   string  `json:"orderedAt"`
 	CollectedAt *string `json:"collectedAt,omitempty"`
+	// Set when the order was billed.
+	InvoiceID *string `json:"invoiceId,omitempty"`
 }
 
 func toLabOrderDTO(o *domain.LabOrder) labOrderDTO {
@@ -153,7 +157,16 @@ func toLabOrderDTO(o *domain.LabOrder) labOrderDTO {
 		Specimen: o.SpecimenType, Indication: o.ClinicalIndication,
 		Priority: o.Priority, Status: o.Status,
 		OrderedAt: o.OrderedAt.UTC().Format(time.RFC3339), CollectedAt: collected,
+		InvoiceID: uuidOrNil(o.InvoiceID),
 	}
+}
+
+func uuidOrNil(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	s := id.String()
+	return &s
 }
 
 // CreateLabOrder handles POST /api/v1/consultations/:encounterId/lab-orders.
@@ -186,6 +199,7 @@ func (h *Consultation) CreateLabOrder(c *gin.Context) {
 		ActorID: actor.UserID, PatientID: patientID, EncounterID: encounterID,
 		TestCode: req.TestCode, TestName: req.TestName, Specimen: req.Specimen,
 		Indication: req.Indication, Priority: req.Priority, OrderNumber: req.OrderNumber,
+		TariffCode: req.TariffCode,
 	})
 	if err != nil {
 		httpx.Error(c, err)

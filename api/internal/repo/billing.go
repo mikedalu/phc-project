@@ -209,3 +209,50 @@ func (r *Billing) SetInvoiceStatus(ctx context.Context, q Querier, invoiceID uui
 	}
 	return nil
 }
+
+// Tariff is a price-list entry.
+type Tariff struct {
+	ID             uuid.UUID
+	Code           string
+	Name           string
+	Category       string
+	UnitPriceMinor int64
+	Unit           *string
+}
+
+// FindActiveTariff returns the currently effective price for a code.
+func (r *Billing) FindActiveTariff(ctx context.Context, q Querier, code string) (*Tariff, error) {
+	const sql = `
+        SELECT id, code, name, category, unit_price_minor, unit
+          FROM tariffs
+         WHERE code = $1
+           AND is_active
+           AND deleted_at IS NULL
+           AND effective_from <= CURRENT_DATE
+           AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
+         ORDER BY effective_from DESC
+         LIMIT 1`
+
+	var t Tariff
+	if err := q.QueryRow(ctx, sql, code).Scan(&t.ID, &t.Code, &t.Name, &t.Category, &t.UnitPriceMinor, &t.Unit); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("find tariff: %w", err)
+	}
+	return &t, nil
+}
+
+// LinkLabOrderToInvoice records which bill a test belongs to.
+func (r *Billing) LinkLabOrderToInvoice(ctx context.Context, q Querier, labOrderID, invoiceID, chargeID uuid.UUID) error {
+	const sql = `
+        UPDATE lab_orders
+           SET invoice_id = $2, charge_id = $3, updated_at = now(),
+               revision = revision + 1, server_rev = server_rev + 1
+         WHERE id = $1 AND deleted_at IS NULL`
+
+	if _, err := q.Exec(ctx, sql, labOrderID, invoiceID, chargeID); err != nil {
+		return fmt.Errorf("link lab order to invoice: %w", err)
+	}
+	return nil
+}

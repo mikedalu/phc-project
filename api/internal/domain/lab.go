@@ -41,6 +41,11 @@ type LabOrder struct {
 	CollectedBy *uuid.UUID
 	CompletedAt *time.Time
 
+	// InvoiceID and ChargeID link the test to its bill. Both are set in the same
+	// transaction that creates the order when a tariff covers it.
+	InvoiceID *uuid.UUID
+	ChargeID  *uuid.UUID
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	CreatedBy uuid.UUID
