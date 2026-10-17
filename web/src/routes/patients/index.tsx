@@ -77,10 +77,15 @@ function PatientListPage() {
             {term ? ` · ${visible.length} matching` : ''}
           </p>
         </div>
-        <Button onClick={() => void navigate({ to: '/patients/new' })}>
-          <Plus aria-hidden="true" className="size-4" />
-          Register patient
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => void navigate({ to: '/patients/family' })}>
+            Register family
+          </Button>
+          <Button onClick={() => void navigate({ to: '/patients/new' })}>
+            <Plus aria-hidden="true" className="size-4" />
+            Register patient
+          </Button>
+        </div>
       </header>
 
       <div className="relative">

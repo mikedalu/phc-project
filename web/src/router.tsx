@@ -10,6 +10,8 @@ import { QueueRoute } from '@/routes/placeholders';
 import { Route as PatientListRoute } from '@/routes/patients/index';
 import { Route as PatientNewRoute } from '@/routes/patients/new';
 import { Route as PatientProfileRoute } from '@/routes/patients/$id';
+import { Route as FamilyRoute } from '@/routes/patients/family';
+import { Route as HouseholdRoute } from '@/routes/households/$id';
 
 /**
  * The assembled route tree.
@@ -27,6 +29,8 @@ const routeTree = rootRoute.addChildren([
   PatientListRoute,
   PatientNewRoute,
   PatientProfileRoute,
+  FamilyRoute,
+  HouseholdRoute,
   adminUsersRoute,
   syncProbeRoute,
 ]);

@@ -18,6 +18,15 @@ import { getDeviceId } from '@/sync/deviceKey';
  * support call, a collision is a data corruption.
  */
 export async function nextPatientNumber(): Promise<string> {
+  return nextNumber('PAT');
+}
+
+/** Family numbers share the scheme, with a different type segment. */
+export async function nextFamilyNumber(): Promise<string> {
+  return nextNumber('FAM');
+}
+
+async function nextNumber(type: 'PAT' | 'FAM'): Promise<string> {
   const year = new Date().getFullYear();
 
   const [codeEntry, deviceId] = await Promise.all([
@@ -30,7 +39,7 @@ export async function nextPatientNumber(): Promise<string> {
 
   // The counter is per device AND per year: numbering restarts each January, and
   // two devices never share a counter because their prefixes differ.
-  const key = `patient:${year}`;
+  const key = `${type.toLowerCase()}:${year}`;
   const seq = await db.transaction('rw', db.numberCounters, async () => {
     const current = await db.numberCounters.get(key);
     const next = (current?.lastValue ?? 0) + 1;
@@ -38,7 +47,7 @@ export async function nextPatientNumber(): Promise<string> {
     return next;
   });
 
-  return `${code}/PAT/${year}/${deviceShort}-${String(seq).padStart(4, '0')}`;
+  return `${code}/${type}/${year}/${deviceShort}-${String(seq).padStart(4, '0')}`;
 }
 
 /** Three characters from the device id — stable for this browser profile. */

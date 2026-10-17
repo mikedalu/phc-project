@@ -99,6 +99,90 @@ export async function localWrite<T extends RowBase>(
 }
 
 /**
+ * Writes several rows in ONE transaction, queuing each for sync.
+ *
+ * ═══ WHY THIS EXISTS ═══
+ *
+ * A family is a household plus N patients. Writing them one at a time through
+ * `localWrite` means a failure halfway leaves a household with two of its five
+ * members and no way to tell which. One transaction makes the family
+ * all-or-nothing, exactly as the server's family endpoint does.
+ *
+ * Outbox order is preserved, which matters: the household row must be enqueued
+ * before the patients that reference it, or the push will hit a foreign key.
+ */
+export async function localWriteMany(items: WriteItem[]): Promise<void> {
+  if (items.length === 0) return;
+
+  assertCanWrite();
+
+  const userID = useSession.getState().user?.userId;
+  if (!userID) {
+    throw new Error('Cannot write without a signed-in user: the rows could not be attributed.');
+  }
+
+  const handleFor = (table: SyncableTable) => tableHandle(table);
+  const tables = Array.from(new Set(items.map((item) => item.table))).map(handleFor);
+
+  // Read every existing row BEFORE opening the transaction, then write inside
+  // it. Awaiting foreign promises inside a Dexie transaction makes it commit
+  // early, which silently drops the write.
+  const prepared: Array<{ table: SyncableTable; row: RowBase; entry: OutboxEntry }> = [];
+
+  for (const item of items) {
+    const handle = handleFor(item.table);
+    const existing = await handle.get(item.row.id);
+    const now = nowIso();
+
+    const row = {
+      ...item.row,
+      revision: existing ? existing.revision + 1 : 1,
+      serverRev: existing?.serverRev ?? 0,
+      syncState: 'pending' as const,
+      deletedAt: item.row.deletedAt ?? null,
+      createdAt: existing?.createdAt ?? item.row.createdAt ?? now,
+      updatedAt: now,
+      createdBy: existing?.createdBy ?? userID,
+      updatedBy: userID,
+    } as RowBase;
+
+    prepared.push({
+      table: item.table,
+      row,
+      entry: {
+        id: newId(),
+        entityTable: item.table,
+        rowId: item.row.id,
+        operation: existing ? 'update' : 'insert',
+        payload: row,
+        baseServerRev: existing ? existing.serverRev : null,
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
+        nextAttemptAt: 0,
+        createdAt: Date.now(),
+        deviceRecordedAt: row.updatedAt,
+      },
+    });
+  }
+
+  await db.transaction('rw', [...tables, db.outbox], async () => {
+    for (const item of prepared) {
+      await handleFor(item.table).put(item.row);
+      await db.outbox.put(item.entry);
+    }
+  });
+
+  void import('@/sync/engine').then((m) => m.requestSync()).catch(() => {});
+}
+
+/** One row in a multi-row write. */
+export interface WriteItem {
+  table: SyncableTable;
+  row: RowBase;
+}
+
+/**
  * Soft-deletes a row and queues the deletion.
  *
  * NEVER a hard delete: the tombstone has to replicate, or the row lives for ever
