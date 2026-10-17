@@ -14,11 +14,27 @@ import { db } from '@/db';
  * list was typed out at each call site. One export, two call sites, no fourth
  * time.
  */
-export const SYNCED_TABLES = ['sync_probe', 'patients', 'households', 'encounters', 'vitals'] as const;
+export const SYNCED_TABLES = [
+  'sync_probe',
+  'patients',
+  'households',
+  'encounters',
+  'vitals',
+  'diagnoses',
+  'lab_orders',
+] as const;
 
 export type SyncedTableName = (typeof SYNCED_TABLES)[number];
 
 /** The Dexie handles, for `db.transaction('rw', ...)`. */
 export function syncedTableHandles() {
-  return [db.sync_probe, db.patients, db.households, db.encounters, db.vitals];
+  return [
+    db.sync_probe,
+    db.patients,
+    db.households,
+    db.encounters,
+    db.vitals,
+    db.diagnoses,
+    db.lab_orders,
+  ];
 }

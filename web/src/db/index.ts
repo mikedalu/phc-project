@@ -1,8 +1,10 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type {
   DeviceKeyRow,
+  DiagnosisRow,
   EncounterRow,
   HouseholdRow,
+  LabOrderRow,
   LocalConflict,
   NumberCounter,
   OfflineCredentialRow,
@@ -43,6 +45,8 @@ export const db = new Dexie('phc_records') as Dexie & {
   households: EntityTable<HouseholdRow, 'id'>;
   encounters: EntityTable<EncounterRow, 'id'>;
   vitals: EntityTable<VitalsRow, 'id'>;
+  diagnoses: EntityTable<DiagnosisRow, 'id'>;
+  lab_orders: EntityTable<LabOrderRow, 'id'>;
 
   // ── local-only infrastructure (never synced) ────────────────────────
   outbox: EntityTable<OutboxEntry, 'id'>;
@@ -150,6 +154,17 @@ db.version(5).stores({
  * The queue is NOT a separate store: an encounter IS the queue entry, exactly as
  * on the server. Two rows for one visit would be two things to keep in step.
  */
+/**
+ * v8 — the consultation's output: diagnoses and lab orders.
+ *
+ * Diagnoses are append-only on the server, so nothing here is ever updated; the
+ * index exists to read a patient's history without scanning.
+ */
+db.version(8).stores({
+  diagnoses: 'id, patientId, encounterId, diagnosedAt, serverRev, syncState',
+  lab_orders: 'id, patientId, encounterId, orderNumber, status, updatedAt, serverRev, syncState',
+});
+
 db.version(7).stores({
   encounters: 'id, patientId, workflowStage, status, priority, queuedAt, updatedAt, serverRev, syncState',
   vitals: 'id, patientId, encounterId, recordedAt, updatedAt, serverRev, syncState',

@@ -92,6 +92,42 @@ export interface EncounterRow extends BaseRow {
   notes: string | null;
 }
 
+/**
+ * A clinical opinion. APPEND-ONLY: a changed mind is a new row, never an edit —
+ * what the doctor thought first is part of the record.
+ */
+export interface DiagnosisRow extends BaseRow {
+  patientId: string;
+  encounterId: string;
+  diagnosisType: 'primary' | 'secondary' | 'differential' | 'provisional' | 'final';
+  icd10Code: string | null;
+  description: string;
+  clinicalNotes: string | null;
+  diagnosedAt: string;
+  diagnosedBy: string;
+}
+
+/**
+ * A test request. LWW, because STATUS advances — ordered → collected →
+ * resulted is an edit to the row, not a new fact.
+ */
+export interface LabOrderRow extends BaseRow {
+  patientId: string;
+  encounterId: string;
+  orderNumber: string;
+  testCode: string;
+  testName: string;
+  specimenType: string | null;
+  clinicalIndication: string | null;
+  priority: 'routine' | 'urgent' | 'stat';
+  status: 'ordered' | 'collected' | 'resulted' | 'cancelled';
+  orderedAt: string;
+  orderedBy: string;
+  collectedAt: string | null;
+  collectedBy: string | null;
+  completedAt: string | null;
+}
+
 export interface VitalsRow extends BaseRow {
   patientId: string;
   encounterId: string | null;

@@ -13,6 +13,7 @@ import { Route as PatientProfileRoute } from '@/routes/patients/$id';
 import { Route as FamilyRoute } from '@/routes/patients/family';
 import { Route as HouseholdListRoute } from '@/routes/households/index';
 import { Route as HouseholdRoute } from '@/routes/households/$id';
+import { Route as ConsultationRoute } from '@/routes/consultations/$encounterId';
 
 /**
  * The assembled route tree.
@@ -33,6 +34,7 @@ const routeTree = rootRoute.addChildren([
   FamilyRoute,
   HouseholdListRoute,
   HouseholdRoute,
+  ConsultationRoute,
   adminUsersRoute,
   syncProbeRoute,
 ]);

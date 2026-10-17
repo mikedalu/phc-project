@@ -21,7 +21,14 @@ import { useSession } from '@/features/auth/session';
  */
 
 /** Every table the client may write through `localWrite`. */
-export type SyncableTable = 'sync_probe' | 'patients' | 'households' | 'encounters' | 'vitals';
+export type SyncableTable =
+  | 'sync_probe'
+  | 'patients'
+  | 'households'
+  | 'encounters'
+  | 'vitals'
+  | 'diagnoses'
+  | 'lab_orders';
 
 interface RowBase extends BaseRow {
   id: string;

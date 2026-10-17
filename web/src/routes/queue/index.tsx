@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createRoute, Link } from '@tanstack/react-router';
+import { createRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { toast } from 'sonner';
 import { Route as rootRoute } from '@/routes/__root';
@@ -91,6 +91,7 @@ function QueuePage() {
 }
 
 function QueueCard({ encounter, patientName }: { encounter: EncounterRow; patientName: string }) {
+  const navigate = useNavigate();
   const [showVitals, setShowVitals] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -98,6 +99,11 @@ function QueueCard({ encounter, patientName }: { encounter: EncounterRow; patien
     setBusy(true);
     try {
       await moveStage(encounter.id, to);
+      // Opening a consultation goes STRAIGHT to the consultation screen: the
+      // doctor's next action is to write in it, not to admire the queue.
+      if (to === 'in_consultation') {
+        await navigate({ to: '/consultations/$encounterId', params: { encounterId: encounter.id } });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not move the patient.');
     } finally {
