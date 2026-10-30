@@ -517,10 +517,17 @@ func (s *Auth) ChangePassword(ctx context.Context, in ChangePasswordInput) error
 
 	// Revoke every OTHER session. The current one is identified by its family id
 	// (the token's `sid`), which is what Refresh carries forward.
-	if _, err := s.tokens.RevokeAllForUser(ctx, s.pool, user.ID, domain.RevokePasswordChanged); err != nil {
-		// The password IS changed at this point. Failing the request would be
-		// dishonest — the user would retry and be told their old password is
-		// wrong. Log loudly instead.
+	if in.KeepSessionID == uuid.Nil {
+		if _, err := s.tokens.RevokeAllForUser(ctx, s.pool, user.ID, domain.RevokePasswordChanged); err != nil {
+			// The password IS changed at this point. Failing the request would be
+			// dishonest — the user would retry and be told their old password is
+			// wrong. Log loudly instead.
+			log.Error().Err(err).Str("user_id", user.ID.String()).
+				Msg("password changed but session revocation FAILED — sessions may survive")
+		}
+	} else if _, err := s.tokens.RevokeAllForUserExcept(
+		ctx, s.pool, user.ID, in.KeepSessionID, domain.RevokePasswordChanged,
+	); err != nil {
 		log.Error().Err(err).Str("user_id", user.ID.String()).
 			Msg("password changed but session revocation FAILED — sessions may survive")
 	}

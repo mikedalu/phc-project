@@ -60,7 +60,7 @@ function WardPage() {
         <div className="divide-y divide-border">
           {current.length === 0 ? (
             <p className="px-3 py-10 text-center text-sm text-text-muted">
-              No inpatients. Admit a patient from their record.
+              No inpatients. Open a consultation and use “Admit to ward”.
             </p>
           ) : null}
 

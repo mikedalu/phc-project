@@ -1,7 +1,17 @@
 import { db } from '@/db';
-import { localWrite } from '@/db/write';
-import { newId, type AdmissionRow, type WardChargeRow } from '@/db/types';
+import { localWriteMany, type WriteItem } from '@/db/write';
+import {
+  newId,
+  type AdmissionRow,
+  type ChargeRow,
+  type EncounterRow,
+  type InvoiceRow,
+  type WardChargeRow,
+} from '@/db/types';
 import { useSession } from '@/features/auth/session';
+import { nextStages } from '@/features/queue/write';
+import { formatMoney, invoiceBalance } from '@/features/billing/write';
+import { nextNumber } from '@/features/patients/number';
 
 /**
  * The ward, client side.
@@ -37,14 +47,20 @@ export async function admitPatient(input: {
 
   if (open) throw new Error('This patient is already admitted.');
 
+  const encounter = await db.encounters.get(input.encounterId);
+  if (!encounter) throw new Error('That visit is not on this device.');
+  if (encounter.patientId !== input.patientId) {
+    throw new Error('That visit belongs to a different patient.');
+  }
+
   const now = new Date().toISOString();
 
-  return localWrite<AdmissionRow>('admissions', {
+  const admission: AdmissionRow = {
     id: newId(),
     patientId: input.patientId,
     encounterId: input.encounterId,
     ward: input.ward.trim(),
-    bedNumber: input.bedNumber,
+    bedNumber: input.bedNumber?.trim() || null,
     status: 'admitted',
     admittedAt: now,
     admittedBy: userID,
@@ -60,7 +76,22 @@ export async function admitPatient(input: {
     updatedAt: now,
     createdBy: userID,
     updatedBy: userID,
-  });
+  };
+
+  const writes: WriteItem[] = [{ table: 'admissions', row: admission }];
+
+  // The server moves the encounter to `admitted` in the same transaction. Do
+  // the same locally, otherwise an offline admission leaves the queue showing a
+  // patient in consultation while they are lying in a bed.
+  if (encounter.workflowStage !== 'admitted' && nextStages(encounter.workflowStage).includes('admitted')) {
+    writes.push({
+      table: 'encounters',
+      row: { ...encounter, workflowStage: 'admitted' } as EncounterRow,
+    });
+  }
+
+  await localWriteMany(writes);
+  return admission;
 }
 
 /**
@@ -91,17 +122,75 @@ export async function chargeNight(input: {
   if (existing) return false;
 
   const now = new Date().toISOString();
+  const patient = await db.patients.get(admission.patientId);
+  const patientHouseholdID = patient?.householdId ?? null;
 
-  const row: WardChargeRow = {
-    id: newId(),
-    admissionId: admission.id,
+  // Every bed-day must land on a bill. The cashier needs to see the balance on
+  // this device even when the clinic is offline, so create the invoice and line
+  // locally and let the server's ward-charge applier confirm them on sync. A
+  // client-created invoice number is safe: numbers include the device prefix,
+  // and the server's unique constraint handles any collision like any other.
+  let invoice = admission.invoiceId ? await db.invoices.get(admission.invoiceId) : undefined;
+  let invoiceWrites: WriteItem[] = [];
+
+  if (!invoice) {
+    const invoiceID = newId();
+    const fresh: InvoiceRow = {
+      id: invoiceID,
+      invoiceNumber: await nextNumber('INV'),
+      patientId: admission.patientId,
+      householdId: patientHouseholdID,
+      encounterId: admission.encounterId,
+      invoiceType: 'ward',
+      status: 'unpaid',
+      totalMinor: input.unitPriceMinor,
+      issuedAt: now,
+      issuedBy: userID,
+      voidedAt: null,
+      voidReason: null,
+      notes: null,
+      revision: 1,
+      serverRev: 0,
+      syncState: 'pending',
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: userID,
+      updatedBy: userID,
+    };
+    invoice = fresh;
+    invoiceWrites = [{ table: 'invoices', row: fresh }];
+  } else {
+    invoiceWrites = [
+      {
+        table: 'invoices',
+        row: {
+          ...invoice,
+          totalMinor: invoice.totalMinor + input.unitPriceMinor,
+          // A new night on a previously settled invoice reopens the bill; the
+          // cashier must take the balance before the patient can be discharged.
+          status: invoice.status === 'paid' ? 'unpaid' : invoice.status,
+        } as InvoiceRow,
+      },
+    ];
+  }
+
+  const chargeID = newId();
+  const line: ChargeRow = {
+    id: chargeID,
+    invoiceId: invoice.id,
     patientId: admission.patientId,
-    chargeDate: input.night,
-    ward: admission.ward,
+    householdId: patientHouseholdID,
+    chargeType: 'ward',
+    tariffId: null,
+    description: `Ward bed · ${admission.ward} · ${input.night}`,
+    referenceId: null,
+    referenceType: null,
+    quantity: 1,
     unitPriceMinor: input.unitPriceMinor,
     amountMinor: input.unitPriceMinor,
-    invoiceId: null,
-    chargeId: null,
+    status: 'active',
+    postedAt: now,
     revision: 1,
     serverRev: 0,
     syncState: 'pending',
@@ -112,7 +201,41 @@ export async function chargeNight(input: {
     updatedBy: userID,
   };
 
-  await localWrite<WardChargeRow>('ward_charges', row);
+  const row: WardChargeRow = {
+    id: newId(),
+    admissionId: admission.id,
+    patientId: admission.patientId,
+    chargeDate: input.night,
+    ward: admission.ward,
+    unitPriceMinor: input.unitPriceMinor,
+    amountMinor: input.unitPriceMinor,
+    invoiceId: invoice.id,
+    chargeId: chargeID,
+    revision: 1,
+    serverRev: 0,
+    syncState: 'pending',
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: userID,
+    updatedBy: userID,
+  };
+
+  const writes: WriteItem[] = [
+    ...invoiceWrites,
+    { table: 'charges', row: line },
+    { table: 'ward_charges', row: row },
+  ];
+
+  if (admission.invoiceId !== invoice.id) {
+    writes.push({
+      table: 'admissions',
+      row: { ...admission, invoiceId: invoice.id } as AdmissionRow,
+    });
+  }
+
+  // Dependency order matters: invoice -> charge -> ward charge -> admission.
+  await localWriteMany(writes);
   return true;
 }
 
@@ -124,11 +247,42 @@ export async function dischargePatient(admissionId: string, notes: string): Prom
   if (!admission) throw new Error('That admission is not on this device.');
   if (admission.status !== 'admitted') throw new Error(`Already ${admission.status}.`);
 
-  await localWrite<AdmissionRow>('admissions', {
-    ...admission,
-    status: 'discharged',
-    dischargedAt: new Date().toISOString(),
-    dischargedBy: userID,
-    dischargeNotes: notes || null,
-  });
+  // The server is the authority, but an offline workstation must apply the same
+  // rule. If the ward invoice is already on this device and has a balance, say so
+  // before writing anything; the server repeats the check on sync.
+  if (admission.invoiceId) {
+    const due = await invoiceBalance(admission.invoiceId);
+    if (due > 0) {
+      throw new Error(`Settle the outstanding balance of ${formatMoney(due)} before discharge.`);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const writes: WriteItem[] = [
+    {
+      table: 'admissions',
+      row: {
+        ...admission,
+        status: 'discharged',
+        dischargedAt: now,
+        dischargedBy: userID,
+        dischargeNotes: notes || null,
+      } as AdmissionRow,
+    },
+  ];
+
+  const encounter = await db.encounters.get(admission.encounterId);
+  if (encounter && encounter.status === 'active') {
+    writes.push({
+      table: 'encounters',
+      row: {
+        ...encounter,
+        workflowStage: 'closed',
+        status: 'closed',
+        closedAt: now,
+      } as EncounterRow,
+    });
+  }
+
+  await localWriteMany(writes);
 }

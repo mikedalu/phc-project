@@ -224,6 +224,79 @@ func (s *Ward) AccrueNight(ctx context.Context, in AccrueInput) (*domain.WardCha
 	return charge, true, nil
 }
 
+// BillSyncedWardCharge turns a ward charge that arrived through sync into a
+// billable invoice line.
+//
+// The offline client writes the night locally and queues it; it has no invoice
+// id because only the server knows how invoices are numbered. Without this hook
+// the charge replicated as a clinical fact with no money attached, and the
+// discharge gate would see a zero balance forever.
+func (s *Ward) BillSyncedWardCharge(ctx context.Context, tx pgx.Tx, wardChargeID, actorID uuid.UUID) error {
+	const readSQL = `
+        SELECT admission_id, patient_id, ward, amount_minor, charge_date, invoice_id
+          FROM ward_charges
+         WHERE id = $1`
+
+	var admissionID, patientID uuid.UUID
+	var ward string
+	var amountMinor int64
+	var night time.Time
+	var existingInvoiceID *uuid.UUID
+
+	if err := tx.QueryRow(ctx, readSQL, wardChargeID).Scan(
+		&admissionID, &patientID, &ward, &amountMinor, &night, &existingInvoiceID,
+	); err != nil {
+		return fmt.Errorf("read synced ward charge: %w", err)
+	}
+	if existingInvoiceID != nil {
+		return nil
+	}
+
+	admission, err := s.repo.FindAdmission(ctx, tx, admissionID)
+	if err != nil {
+		return err
+	}
+	patient, err := s.patients.FindPatientByID(ctx, tx, patientID)
+	if err != nil {
+		return err
+	}
+
+	invoice, err := s.invoiceFor(ctx, tx, admission, actorID)
+	if err != nil {
+		return err
+	}
+
+	line := &domain.Charge{
+		ID:             uuid.New(),
+		InvoiceID:      invoice.ID,
+		PatientID:      patientID,
+		HouseholdID:    patient.HouseholdID,
+		ChargeType:     "ward",
+		Description:    fmt.Sprintf("Ward bed · %s · %s", ward, night.Format("2006-01-02")),
+		Quantity:       1,
+		UnitPriceMinor: amountMinor,
+		AmountMinor:    amountMinor,
+		Status:         "active",
+		PostedAt:       s.now(),
+		CreatedBy:      actorID,
+		UpdatedBy:      actorID,
+	}
+	if err := s.billing.InsertCharge(ctx, tx, line); err != nil {
+		return err
+	}
+
+	const linkSQL = `
+        UPDATE ward_charges
+           SET invoice_id = $2, charge_id = $3, updated_by = $4, updated_at = now(),
+               revision = revision + 1, server_rev = server_rev + 1
+         WHERE id = $1`
+	if _, err := tx.Exec(ctx, linkSQL, wardChargeID, invoice.ID, line.ID, actorID); err != nil {
+		return fmt.Errorf("link synced ward charge: %w", err)
+	}
+
+	return s.recalcInvoiceTotal(ctx, tx, invoice.ID, actorID)
+}
+
 // Discharge closes the stay.
 func (s *Ward) Discharge(ctx context.Context, actorID, admissionID uuid.UUID, notes string) (*domain.Admission, error) {
 	actor, err := s.requireWardStaff(ctx, actorID)
@@ -239,6 +312,21 @@ func (s *Ward) Discharge(ctx context.Context, actorID, admissionID uuid.UUID, no
 		return nil, domain.Publicf(domain.ErrValidation, "This admission is already %s.", admission.Status)
 	}
 
+	// Discharge is a financial event: a patient cannot leave the ward with an
+	// unpaid ward invoice. The balance is derived from charges minus allocations,
+	// so this reads the same number the cashier sees. Enforced in the service,
+	// not only in the client, because a modified client is not a control.
+	if admission.InvoiceID != nil {
+		balance, err := s.billing.InvoiceBalance(ctx, s.pool, *admission.InvoiceID)
+		if err != nil {
+			return nil, err
+		}
+		if balance.BalanceMinor > 0 {
+			return nil, domain.Publicf(domain.ErrConflict,
+				"This admission has an outstanding balance of %s.", formatMoney(balance.BalanceMinor))
+		}
+	}
+
 	if err := db.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		moved, err := s.repo.Discharge(ctx, tx, admissionID, actor.ID, optionalString(&notes, 500))
 		if err != nil {
@@ -246,6 +334,13 @@ func (s *Ward) Discharge(ctx context.Context, actorID, admissionID uuid.UUID, no
 		}
 		if !moved {
 			return domain.Public(domain.ErrStale, "Another station discharged this patient. Reload.")
+		}
+		// Close the visit in the same transaction. If the encounter is no longer
+		// in `admitted` (another station moved it), the transition is a no-op
+		// rather than a reason to keep the patient in the ward board.
+		if _, err := s.encounters.Transition(ctx, tx, admission.EncounterID,
+			domain.StageAdmitted, domain.StageClosed, actor.ID, true); err != nil {
+			return err
 		}
 		return nil
 	}); err != nil {

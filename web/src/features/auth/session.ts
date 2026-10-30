@@ -361,6 +361,11 @@ async function doRefresh(): Promise<RefreshOutcome> {
   }
 }
 
+/** The user changed a temporary password; stop prompting on this device. */
+export function markPasswordChanged(): void {
+  useSession.setState({ mustChangePassword: false });
+}
+
 /**
  * Ends the session locally, then best-effort revokes it on the server.
  *

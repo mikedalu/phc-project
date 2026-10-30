@@ -101,3 +101,13 @@ export interface ServerSession {
 export function fetchSession() {
   return apiGet<ServerSession>('/auth/session');
 }
+
+/**
+ * POST /auth/change-password.
+ *
+ * The server keeps the current session alive and revokes every other session for
+ * the account, so the device at the counter does not throw the user out.
+ */
+export function changePassword(input: { currentPassword: string; newPassword: string }) {
+  return apiPost<void>('/auth/change-password', input);
+}

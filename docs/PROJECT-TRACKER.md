@@ -8,10 +8,10 @@
 
 ## 1. Status board
 
-**Current sprint:** `Sprint 2 — The sync engine`
-**Sprint start:** _fill in_ · **Sprint end:** _fill in_
-**Overall status:** 🟢 Sprint 0 and Sprint 1 complete. Sprint 2 starting — the sync engine, built before any clinical feature so every later screen is offline-capable for free
-**Last updated:** Sprint 1 close, after offline sign-in and the RBAC route matrix
+**Current sprint:** `Final MVP readiness audit`
+**Sprint start:** — · **Sprint end:** —
+**Overall status:** 🟢 MVP demo path verified end to end; the full roadmap has documented deferrals (see §1.1)
+**Last updated:** 2026-10-29, after the MVP readiness audit and UI revamp
 
 | Legend | Meaning                                        |
 | ------ | ---------------------------------------------- |
@@ -20,6 +20,29 @@
 | 🔴     | Blocked                                        |
 | ⬜     | Not started                                    |
 | ⏭️     | Deliberately deferred (with a reason recorded) |
+
+### 1.1 MVP readiness audit — 2026-10-29
+
+**Verified green**
+
+- Playwright: 6/6 specs — patients, queue/vitals, consultation/lab, billing, referral, two-device sync.
+- Go: `go test ./...` and `go vet ./...`.
+- Web: `pnpm typecheck` and `pnpm build`.
+- Manual smoke: admission from consultation, ward board, offline bed-day invoice, discharge gate, password page, desktop and mobile layouts.
+
+**Built during this audit**
+
+- Admission can be started from the consultation, not only through the API.
+- A bed-day creates a local invoice and charge, and sync couples it to the server invoice; discharge is blocked while the derived balance is non-zero (client and service).
+- Self-service change-password page; password change keeps the current session and revokes the others.
+
+**Deferred vs. the full roadmap (state these in the defence)**
+
+- Wards/beds tables, bed grid, nursing notes, transfers, automatic accrual runner.
+- Referral PIN challenge, access log, referral register, revocation UI.
+- Reports/exports, sync-health dashboard, offline soak/performance evidence, PWA install prompt.
+- Forced first-login password change (the banner prompts; the shared demo accounts still work with the temporary password).
+- Per-field LWW (whole-row LWW is the documented trade-off).
 
 ---
 
@@ -32,13 +55,13 @@ Update this table the moment a sprint closes. It is the first thing to show your
 | 0      | Foundations & walking skeleton             | ✅     |         |           | 30        | 97%      | Deployed to Cloud Run + Cloudflare Pages. Only 0.24 (browser confirmation) pending                                                                                                                                                                                            |
 | 1      | Auth, roles & device identity              | ✅     |         |           | 17        | 100%     | **All deliverables met.** Login, session, refresh, device identity, role nav, guards, offline grace, offline sign-in, staff administration, 8 demo accounts, RBAC route matrix. Only Playwright (0.25, shared with Sprint 0) is outstanding and is not a Sprint 1 deliverable |
 | 2      | Sync engine                                | ✅     |         |           |           | 100%     | **Complete.** Server push/pull/snapshot with idempotency, LWW, conflicts, redaction and cursor semantics. Client engine with `localWrite`, signing, backoff, cursor commit. **Two-browser E2E automated in Playwright and stable across runs**                                |
-| 3      | Patient registration (individual & family) | ✅     |         |           |           | 100%     | Schema, individual registration and **offline-capable sync for patients and households** done and verified live. Remaining: family registration, household views, and the whole frontend                                                                                      |
-| 4      | Queue, vitals & triage                     | ✅     |         |           |           | 100%     | Schema, state machine, encounters and vitals endpoints done and verified live. Remaining: sync appliers + the queue board and vitals form                                                                                                                                     |
-| 5      | Consultation, diagnosis & lab              | ✅     |         |           |           |          | 100%|
-| 6      | Billing, cashier & pharmacy                | ✅     |         |           |           |          | 100%|
-| 7      | Admission & inpatient management           | ✅     |         |           |           |          | 100%|
-| 8      | Referral system & public access            | ✅     |         |           |           |          | 100%|
-| 9      | Hardening, reporting & handover            | ✅     |         |           |           |          | 100%|
+| 3      | Patient registration (individual & family) | ✅     |         |           |           | 100%     | Complete. Individual and family registration, household views, patient list and detail; patients E2E is green. |
+| 4      | Queue, vitals & triage                     | ✅     |         |           |           | 100%     | Complete. Triage board, vitals capture and stage transitions; queue E2E is green across two devices. |
+| 5      | Consultation, diagnosis & lab              | ✅     |         |           |           |          | 100%     | Complete. Diagnosis, lab ordering/collection/results; consultation E2E is green. |
+| 6      | Billing, cashier & pharmacy                | ✅     |         |           |           |          | 100%     | Complete. Invoices, derived balances, payment allocation and dispensing; billing E2E is green. |
+| 7      | Admission & inpatient management           | 🟡     |         |           |           |          | 80%      | MVP slice complete: admit from consultation, manual bed-day charge, local+server invoice, discharge gate. Wards/beds tables, nursing notes, transfers and the automatic accrual runner are deferred. |
+| 8      | Referral system & public access            | 🟡     |         |           |           |          | 60%      | Encrypted QR referral, public read and 48-hour expiry are built and E2E green. PIN challenge, access log, register and revocation UI are deferred. |
+| 9      | Hardening, reporting & handover            | 🟡     |         |           |           |          | 70%      | Dashboard, audit viewer, security pass and user manual built. Reports/exports, sync-health, offline soak/performance evidence and the PWA install prompt are deferred. |
 
 ---
 

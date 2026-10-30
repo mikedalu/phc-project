@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createRoute, Link } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, FlaskConical, Loader2, Pill, Plus, Stethoscope } from 'lucide-react';
+import { ArrowLeft, BedDouble, FlaskConical, Loader2, Pill, Plus, Stethoscope } from 'lucide-react';
 import { toast } from 'sonner';
 import { Route as rootRoute } from '@/routes/__root';
 import { db } from '@/db';
@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { addDiagnosis, addLabOrder, addPrescription } from '@/features/consultation/write';
+import { admitPatient } from '@/features/ward/write';
+import { hasAnyRole } from '@/features/auth/roles';
+import { useSession } from '@/features/auth/session';
 import { formatMoney } from '@/features/billing/write';
 import { searchICD10, type ICD10Entry } from '@/features/consultation/icd10';
 import type { DiagnosisRow } from '@/db/types';
@@ -107,6 +110,7 @@ function ConsultationPage() {
       </div>
 
       <PrescriptionPanel patientId={encounter.patientId} encounterId={encounter.id} />
+      <AdmissionPanel patientId={encounter.patientId} encounterId={encounter.id} />
     </div>
   );
 }
@@ -514,6 +518,113 @@ function PrescriptionPanel({ patientId, encounterId }: { patientId: string; enco
           })}
         </ul>
       </div>
+    </section>
+  );
+}
+
+/**
+ * Admission is the bridge from consultation to the ward.
+ *
+ * It belongs here, beside the diagnosis that justifies it, rather than on a
+ * separate admissions screen the doctor has to remember to visit. The server
+ * moves the encounter to `admitted` in the same transaction; the local write
+ * does the same, so an offline admission disappears from the queue immediately.
+ */
+function AdmissionPanel({ patientId, encounterId }: { patientId: string; encounterId: string }) {
+  const roles = useSession((s) => s.user?.roles ?? []);
+  const admission = useLiveQuery(
+    async () => {
+      const open = await db.admissions
+        .where('patientId')
+        .equals(patientId)
+        .filter((a) => a.status === 'admitted')
+        .first();
+      return open ?? null;
+    },
+    [patientId],
+    null,
+  );
+
+  const [ward, setWard] = useState('General ward');
+  const [bed, setBed] = useState('');
+  const [busy, setBusy] = useState(false);
+  const canAdmit = hasAnyRole(roles, ['nurse', 'doctor', 'admin']);
+
+  if (!canAdmit && !admission) return null;
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await admitPatient({
+        patientId,
+        encounterId,
+        ward,
+        bedNumber: bed.trim() || null,
+      });
+      toast.success(`Admitted to ${ward.trim()}${bed.trim() ? `, bed ${bed.trim()}` : ''}.`);
+      setBed('');
+    } catch (error) {
+      toast.error(humanError(error, 'Could not admit the patient.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-md border border-border bg-surface">
+      <h2 className="flex items-center gap-2 border-b border-border bg-surface-sunken px-4 py-2 text-sm font-medium text-text">
+        <BedDouble aria-hidden="true" className="size-4" />
+        Admission
+      </h2>
+
+      {admission ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-sm font-medium text-text">In the ward</p>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {admission.ward}
+              {admission.bedNumber ? ` · bed ${admission.bedNumber}` : ''} · admitted{' '}
+              {new Date(admission.admittedAt).toLocaleDateString()}
+            </p>
+          </div>
+          <Link to="/ward" className="text-sm text-primary hover:underline">
+            Open ward
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3 p-4">
+          <p className="text-sm text-text-subtle">
+            Admit this patient for inpatient care. Bed-days are charged nightly from the ward
+            board, and discharge is blocked until the ward balance is settled.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+            <FormField label="Ward" required>
+              {(field) => (
+                <Input
+                  id={field.id}
+                  value={ward}
+                  onChange={(event) => setWard(event.target.value)}
+                  placeholder="General ward"
+                />
+              )}
+            </FormField>
+            <FormField label="Bed">
+              {(field) => (
+                <Input
+                  id={field.id}
+                  value={bed}
+                  onChange={(event) => setBed(event.target.value)}
+                  placeholder="G-04"
+                />
+              )}
+            </FormField>
+            <Button onClick={() => void submit()} disabled={busy || !ward.trim()}>
+              {busy ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+              Admit to ward
+            </Button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

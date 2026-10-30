@@ -167,12 +167,13 @@ Say this plainly; it is stronger than pretending.
 - **Whole-row LWW, not per-field.** Two clinicians editing different fields of
   one patient lose one edit — and the loser is stored in `sync_conflicts` with
   BOTH payloads, not dropped. Recorded as decision D64 with the trade-off.
-- **No reports, no dashboards, no audit viewer.** Sprint 9's reporting scope was
-  traded for hardening: token revocation and change-log retention, both of which
-  a running clinic needs more.
-- **A referral cannot be reprinted.** The token is returned once and never
-  stored, because storing it would make the encryption pointless. That is a
-  design consequence, not a missing feature.
+- **No reports or exports.** The facility dashboard and audit viewer are built;
+  Sprint 9's reporting/export scope was traded for hardening (token revocation
+  and change-log retention), which a running clinic needs more.
+- **The referral has no PIN challenge, access log, register or revocation UI.**
+  The encrypted QR token and 48-hour service-enforced expiry are built and
+  demonstrated. Storing the token for a register would defeat the encryption, so
+  a reprint is a deliberate design consequence, not a missing feature.
 - **Single facility.** No tenant column anywhere; the deployment *is* the
   facility.
 

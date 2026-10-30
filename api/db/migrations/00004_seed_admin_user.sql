@@ -7,7 +7,7 @@
 --
 --   Staff no:  DEMO/STF/0001
 --   Email:     admin@demo.phc
---   Password:  ChangeMe!2026
+--   Password:
 --
 --   The password is committed here on purpose so a fresh environment is usable.
 --   must_change_password = true forces a change at first login.

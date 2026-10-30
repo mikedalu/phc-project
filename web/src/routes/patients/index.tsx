@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { createRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Plus, Search } from 'lucide-react';
@@ -15,8 +15,9 @@ import { cn } from '@/lib/cn';
  * device — that is the architecture — so a list that waits for a network round
  * trip would be slower and would simply fail offline.
  *
- * Ctrl+K is a global habit from the rest of the app: it focuses the search box
- * from anywhere on the screen, so a clerk never reaches for the mouse.
+ * Ctrl+K now opens the global command palette, which searches this same local
+ * register and jumps straight to a patient from any screen. This box remains for
+ * filtering the list in place while working through search results.
  */
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -27,25 +28,12 @@ export const Route = createRoute({
 function PatientListPage() {
   const navigate = useNavigate();
   const [term, setTerm] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const patients = useLiveQuery(
     () => db.patients.orderBy('updatedAt').reverse().toArray(),
     [],
     [],
   );
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   const visible = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -94,10 +82,9 @@ function PatientListPage() {
           className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-text-muted"
         />
         <Input
-          ref={searchRef}
           value={term}
           onChange={(event) => setTerm(event.target.value)}
-          placeholder="Search name, number or phone… (Ctrl+K)"
+          placeholder="Search name, number or phone…"
           aria-label="Search patients"
           className="pl-9"
         />

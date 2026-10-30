@@ -37,6 +37,7 @@ type Sync struct {
 	sync     *repo.Sync
 	devices  *repo.Devices
 	users    *repo.Users
+	ward     *Ward
 	appliers map[string]syncApplier
 	maxBatch int
 	now      func() time.Time
@@ -49,6 +50,7 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 		sync:     repo.NewSync(),
 		devices:  repo.NewDevices(),
 		users:    repo.NewUsers(pool),
+		ward:     NewWard(pool),
 		maxBatch: maxBatch,
 		now:      time.Now,
 	}
@@ -117,6 +119,12 @@ func NewSync(pool *pgxpool.Pool, maxBatch int) *Sync {
 				columns: wardChargeColumnsForSync,
 				sync:    s.sync,
 				now:     s.now,
+			},
+			// A ward charge created on an offline device arrives here without an
+			// invoice. Bill it on the server in the same transaction, or the
+			// nightly charge would sync as a clinical fact with no money attached.
+			afterInsert: func(ctx context.Context, tx pgx.Tx, in applyContext) error {
+				return s.ward.BillSyncedWardCharge(ctx, tx, in.rowID, in.userID)
 			},
 			sync: s.sync,
 			now:  s.now,

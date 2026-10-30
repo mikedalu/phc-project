@@ -23,34 +23,73 @@
   --color-grey-900: #0F172A;   /* primary text, sidebar-active, toast surface */
   --color-grey-950: #020617;   /* print fallback, never a surface */
 
-  /* ---------- ONE brand colour: calm clinical teal ---------- */
-  --color-primary-50:  #F0FDFA;
-  --color-primary-100: #CCFBF1;  /* primary-soft */
-  --color-primary-200: #99F6E4;  /* soft border, selected row outline */
-  --color-primary-300: #5EEAD4;  /* chart series, focus ring on dark surfaces */
-  --color-primary-600: #0D9488;  /* DECORATIVE ONLY - 3.74:1 with white, fails AA text */
-  --color-primary-700: #0F766E;  /* THE primary. 5.47:1 with white */
-  --color-primary-800: #115E59;  /* primary hover. 7.51:1 with white */
-  --color-primary-900: #134E4A;  /* primary active/pressed. 9.48:1 with white */
+  /* ---------- Slate aliases (same ramp, named for the brand spec) ---------- */
+  --color-slate-50:  var(--color-grey-50);
+  --color-slate-100: var(--color-grey-100);
+  --color-slate-200: var(--color-grey-200);
+  --color-slate-300: var(--color-grey-300);
+  --color-slate-400: var(--color-grey-400);
+  --color-slate-500: var(--color-grey-500);
+  --color-slate-600: var(--color-grey-600);
+  --color-slate-700: var(--color-grey-700);
+  --color-slate-800: var(--color-grey-800);
+  --color-slate-900: var(--color-grey-900);
+  --color-slate-950: var(--color-grey-950);
+
+  /* ---------- Spring Care brand ramp: medical teal / emerald ---------- */
+  --color-spring-50:  #ECFDF5;  /* soft badge fills, active row highlights */
+  --color-spring-100: #D1FAE5;  /* tinted button backgrounds */
+  --color-spring-200: #A7F3D0;  /* subtle selection boundaries */
+  --color-spring-300: #6EE7B7;  /* charts and decorative rules */
+  --color-spring-400: #34D399;  /* online connectivity indicator */
+  --color-spring-500: #10B981;  /* decorative only */
+  --color-spring-600: #059669;  /* accent icons, active navigation (3.77:1) */
+  --color-spring-700: #047857;  /* THE primary. 5.48:1 with white */
+  --color-spring-800: #065F46;  /* primary hover. 7.68:1 with white */
+  --color-spring-900: #064E3B;  /* deep header accents, active states. 9.69:1 */
+  --color-spring-950: #022C22;  /* print fallback, never a surface */
+
+  /* Primary aliases keep every existing component on the new brand ramp. */
+  --color-primary-50:  var(--color-spring-50);
+  --color-primary-100: var(--color-spring-100);  /* primary-soft */
+  --color-primary-200: var(--color-spring-200);  /* soft border, selected row outline */
+  --color-primary-300: var(--color-spring-300);  /* chart series, focus ring on dark surfaces */
+  --color-primary-400: var(--color-spring-400);
+  --color-primary-500: var(--color-spring-500);
+  --color-primary-600: var(--color-spring-600);
+  --color-primary-700: var(--color-spring-700);
+  --color-primary-800: var(--color-spring-800);
+  --color-primary-900: var(--color-spring-900);
+  --color-primary-950: var(--color-spring-950);
 
   --color-primary:        var(--color-primary-700);
   --color-primary-hover:  var(--color-primary-800);
   --color-primary-active: var(--color-primary-900);
   --color-primary-soft:   var(--color-primary-100);
-  --color-primary-fg:     var(--color-primary-900); /* text on primary-soft: 8.41:1 */
+  --color-primary-fg:     var(--color-primary-900); /* text on primary-soft: 8.55:1 */
 
   /* ---------- Semantic ---------- */
   --color-success:      #15803D;  /* 5.02:1 with white */
   --color-success-soft: #DCFCE7;
   --color-success-fg:   #14532D;  /* on success-soft: 8.30:1 */
+  --color-warning-50:   #FFFBEB;
+  --color-warning-100:  #FEF3C7;
   --color-warning:      #B45309;  /* 5.02:1 with white */
-  --color-warning-soft: #FEF3C7;
+  --color-warning-600:  #D97706;  /* decorative accent only */
+  --color-warning-soft: var(--color-warning-100);
   --color-warning-fg:   #78350F;  /* on warning-soft: 8.15:1 */
-  --color-danger:       #B91C1C;  /* 6.47:1 with white */
-  --color-danger-soft:  #FEE2E2;
+  --color-danger-50:    #FEF2F2;
+  --color-danger-100:   #FEE2E2;
+  --color-danger-500:   #EF4444;  /* decorative accent only */
+  --color-danger-700:   #B91C1C;
+  --color-danger:       var(--color-danger-700);  /* 6.47:1 with white */
+  --color-danger-soft:  var(--color-danger-100);
   --color-danger-fg:    #7F1D1D;  /* on danger-soft: 8.20:1 */
-  --color-info:         #1D4ED8;  /* 6.70:1 with white */
-  --color-info-soft:    #DBEAFE;
+  --color-info-50:      #EFF6FF;
+  --color-info-100:     #DBEAFE;
+  --color-info-700:     #1D4ED8;
+  --color-info:         var(--color-info-700);  /* 6.70:1 with white */
+  --color-info-soft:    var(--color-info-100);
   --color-info-fg:      #1E3A8A;  /* on info-soft: 8.49:1 */
 
   /* ---------- Surfaces, text, borders ---------- */
@@ -63,13 +102,16 @@
   --color-text-muted:    var(--color-grey-500); /* 4.76:1 on white  */
   --color-text-subtle:   var(--color-grey-600); /* 7.58:1 on white  */
   --color-text-inverse:  #FFFFFF;
-  --color-ring:          var(--color-primary-700); /* 5.47:1 on white, 5.25:1 on grey-50 */
+  --color-ring:          var(--color-primary-700); /* 5.48:1 on white, 5.26:1 on grey-50 */
 
   /* ---------- Typography ---------- */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-               "Noto Sans", Arial, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas,
-               "Liberation Mono", monospace;
+  /* The named faces are used when installed on the workstation; otherwise the
+     stack falls through to the platform UI font. No webfont request is made, so
+     the app still loads on an offline device (CSP font-src is 'self'). */
+  --font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, "Segoe UI",
+               Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo,
+               Consolas, "Liberation Mono", monospace;
   /* Numeric stack: fonts with true tabular figures. Segoe UI, SF and Roboto all
      carry a `tnum` feature; the fallback list keeps metrics stable across OSes. */
   --font-numeric: "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -112,10 +154,14 @@
   --radius-lg:   0.5rem;   /* 8px modals, drawers */
   --radius-full: 9999px;   /* avatars, status dots only */
 
-  /* ---------- Shadows: three levels, all subtle ---------- */
+  /* ---------- Shadows: three levels plus the brand elevation names ---------- */
   --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
   --shadow-md: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
   --shadow-lg: 0 8px 24px -6px rgb(15 23 42 / 0.12), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+  --shadow-subtle: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-card:   0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.08);
+  --shadow-float:  0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.04);
+  --shadow-modal:  0 20px 25px -5px rgb(15 23 42 / 0.1), 0 8px 10px -6px rgb(15 23 42 / 0.1);
 
   /* ---------- Border widths ---------- */
   --border-hairline: 1px; /* every default border */

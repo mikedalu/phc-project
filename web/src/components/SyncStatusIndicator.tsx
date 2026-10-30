@@ -77,6 +77,7 @@ export function SyncStatusIndicator({ className }: { className?: string }) {
       // Not `assertive`: sync status must never interrupt data entry.
       aria-live="polite"
       role="status"
+      aria-label={label}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-sm px-2 py-1',
         'text-xs font-medium',

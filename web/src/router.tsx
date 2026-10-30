@@ -3,6 +3,7 @@ import { Route as rootRoute } from '@/routes/__root';
 import { Route as indexRoute } from '@/routes/index';
 import { Route as loginRoute } from '@/routes/login';
 import { Route as sessionExpiredRoute } from '@/routes/session-expired';
+import { Route as changePasswordRoute } from '@/routes/change-password';
 import { Route as adminUsersRoute } from '@/routes/admin/users';
 import { Route as syncProbeRoute } from '@/routes/dev/sync';
 import { Route as syncRoute } from '@/routes/sync';
@@ -32,6 +33,7 @@ import { Route as AdminActivityRoute } from '@/routes/admin/activity';
 const routeTree = rootRoute.addChildren([
   loginRoute,
   sessionExpiredRoute,
+  changePasswordRoute,
   indexRoute,
   syncRoute,
   QueueRoute,

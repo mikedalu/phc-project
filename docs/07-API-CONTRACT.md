@@ -1123,7 +1123,7 @@ Lets the receiving facility close the loop, which sets `status = 'acknowledged'`
 |---|---|---|---|
 | `GET` | `/admin/users` | AD | ✅ Built — list staff with their roles |
 | `PATCH` | `/admin/users/:id` | AD | ✅ Built — `{ role, isActive, reason }`; `role` toggles |
-| `POST` | `/admin/users` | AD | ⬜ Not built — create a staff account |
+| `POST` | `/admin/users` | AD | ✅ Built — create a staff account with a temporary password |
 | `POST` | `/admin/users/:id/reset-password` | AD | ⬜ Not built — temporary password + `mustChangePassword` |
 | `GET` | `/admin/devices` | AD | ⬜ Not built — with sync health from `device_sync_state` |
 | `POST` | `/admin/devices/:id/revoke` | AD | ✅ Built — `{ reason }`, immediate |

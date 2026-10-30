@@ -30,8 +30,12 @@ type appendOnlyApplier struct {
 	// attributedTo names the NOT NULL columns that record WHO made the fact.
 	// They are filled from the session, never trusted from the payload.
 	attributedTo []string
-	sync         *repo.Sync
-	now          func() time.Time
+	// afterInsert runs inside the same transaction after a successful insert.
+	// Ward charges use it to create the invoice line that makes the night
+	// billable; the generic applier knows nothing about billing.
+	afterInsert func(ctx context.Context, tx pgx.Tx, in applyContext) error
+	sync        *repo.Sync
+	now         func() time.Time
 }
 
 func (a *appendOnlyApplier) apply(ctx context.Context, tx pgx.Tx, in applyContext) (applyOutcome, error) {
@@ -98,7 +102,16 @@ func (a *appendOnlyApplier) applyInsert(ctx context.Context, tx pgx.Tx, in apply
 	created := saneClientTime(payloadTime(in.op.Payload, "createdAt"), now)
 	recorded := saneClientTime(payloadTime(in.op.Payload, "recordedAt"), created)
 
-	return a.insert.insert(ctx, tx, in, used, values, created, recorded)
+	outcome, err := a.insert.insert(ctx, tx, in, used, values, created, recorded)
+	if err != nil {
+		return outcome, err
+	}
+	if outcome.status == domain.OpApplied && a.afterInsert != nil {
+		if err := a.afterInsert(ctx, tx, in); err != nil {
+			return applyOutcome{}, err
+		}
+	}
+	return outcome, nil
 }
 
 func (a *appendOnlyApplier) applyDelete(ctx context.Context, tx pgx.Tx, in applyContext) (applyOutcome, error) {

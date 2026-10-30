@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Loader2, LockKeyhole } from 'lucide-react';
 import { z } from 'zod';
 import { Route as rootRoute } from '@/routes/__root';
+import { BrandMark } from '@/components/BrandMark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
@@ -12,6 +13,7 @@ import { ApiError } from '@/lib/api';
 import { useSession, signIn, signInOffline, OfflineSignInError } from '@/features/auth/session';
 import { readOfflineCredential } from '@/features/auth/offlineCredentials';
 import { describeDevice } from '@/features/auth/device-label';
+import { HOSPITAL } from '@/lib/branding';
 
 /**
  * Sign-in screen.
@@ -114,13 +116,13 @@ function LoginPage() {
   return (
     <div className="flex min-h-full items-center justify-center bg-canvas p-6">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-sm bg-primary text-sm font-bold text-text-inverse">
-            PH
-          </span>
+        <div className="mb-6 flex items-center gap-3">
+          <BrandMark />
           <div>
-            <h1 className="text-lg font-semibold text-text">PHC Records</h1>
-            <p className="text-sm text-text-muted">Demo Primary Health Centre</p>
+            <h1 className="text-lg font-semibold text-text">{HOSPITAL.name}</h1>
+            <p className="text-sm text-text-muted">
+              {HOSPITAL.tagline} · {HOSPITAL.systemName}
+            </p>
           </div>
         </div>
 
@@ -128,7 +130,7 @@ function LoginPage() {
           onSubmit={onSubmit}
           noValidate
           aria-busy={submitting}
-          className="flex flex-col gap-5 rounded-md border border-border bg-surface p-6"
+          className="flex flex-col gap-5 rounded-md border border-border bg-surface p-6 shadow-card"
         >
           <div className="flex items-center gap-2">
             <LockKeyhole aria-hidden="true" className="size-4 text-text-muted" />

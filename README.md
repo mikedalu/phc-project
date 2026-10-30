@@ -93,11 +93,11 @@ fresh install has one account per role without any manual SQL.
 | `DEMO/STF/0005` | `lab_scientist` | Lab worklist |
 | `DEMO/STF/0006` | `pharmacist` | Dispensing |
 | `DEMO/STF/0007` | `cashier` | Payments |
-| `DEMO/STF/0008` | `accountant` | Reports |
+| `DEMO/STF/0008` | `accountant` | Billing oversight |
 
 **This is seed data, not a deployment.** A real installation must sign in as `DEMO/STF/0001`,
-change the password, and disable or delete the other seven. Migration `00009`'s `Down` step
-removes them all.
+use **Change password** in the sidebar, and disable or delete the other seven. Migration
+`00009`'s `Down` step removes them all.
 
 Signing in as different roles is how the RBAC is demonstrated: the sidebar for a cashier shows
 no triage board, and `/admin/users` redirects away for everyone except an administrator.
@@ -163,7 +163,7 @@ curl -s localhost:8080/api/v1/meta | jq    # schema version, server time, facili
 ## The two features that matter most in a viva
 
 1. **The complete clinical workflow runs with the network off** — register, triage, consult, order labs, prescribe, pay, dispense — and every record arrives intact when connectivity returns.
-2. **A referral note printed as a QR code on a thermal slip can be opened at another facility for 48 hours**, with a PIN, an expiry enforced in SQL, and a full access log.
+2. **A referral note printed as a QR code on a thermal slip can be opened at another facility for 48 hours**, using an encrypted token with a service-enforced expiry. A PIN challenge, access log and revocation register are deliberately deferred; see `docs/07-API-CONTRACT.md` and the demo script's limitations section.
 
 Practise demonstrating both until they are boring.
 

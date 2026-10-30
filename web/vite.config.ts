@@ -30,10 +30,10 @@ export default defineConfig({
       // to reload.
       registerType: 'prompt',
       manifest: {
-        name: 'PHC Patient Records',
-        short_name: 'PHC Records',
-        description: 'Offline-capable patient records and referral management',
-        theme_color: '#0d9488',
+        name: 'Spring Care Hospital — Clinical Records',
+        short_name: 'Spring Care',
+        description: 'Offline-capable clinical records and referral management',
+        theme_color: '#047857',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',

@@ -7,6 +7,10 @@ only what to press and what to do when the connection drops.
 If the screen says *"This device has been revoked"*, an administrator must
 re-enable the device — clearing your browser data is the only other way out.
 
+**Changing your password:** use **Change password** at the bottom of the sidebar.
+The workstation stays signed in; every other session on your account is signed
+out. The minimum is 12 characters.
+
 ---
 
 ## Everyone: the one thing to remember
@@ -63,7 +67,10 @@ You see: **Queue**, **Patients**, **Ward**, **Laboratory** (view), **Pharmacy** 
    *Record vitals* → type the numbers → *Save vitals*. Press **Enter** to save;
    you do not need the mouse. The patient moves to *Waiting for doctor*.
 2. **Send to doctor** — on the card, *Send to doctor*.
-3. **Record vitals again** — later readings are added as new rows. Nothing is
+3. **Work the ward** — Ward lists every inpatient. Press **Charge <date>** once
+   per night to raise that night's bed-day bill. **Discharge** is blocked until
+   the ward invoice is fully paid; the cashier can settle it from Billing.
+4. **Record vitals again** — later readings are added as new rows. Nothing is
    overwritten; the doctor sees the trend.
 
 **Important:** a second reading never replaces the first. If you make a mistake,
@@ -92,6 +99,10 @@ You see: **Queue**, **Patients**, **Ward**, **Laboratory**, **Pharmacy**.
 5. **Refer a patient** — *Refer patient* at the top of the consultation. Give the
    receiving facility, the reason, and how urgent it is. Print the note or show
    the QR code on screen. It is valid for 48 hours.
+6. **Admit a patient** — the *Admission* card at the bottom of the consultation.
+   Choose the ward and bed, then *Admit to ward*. The visit leaves the queue and
+   appears under Ward. Bed-days are charged from the ward board, and discharge is
+   blocked until the ward bill is settled.
 
 ---
 
@@ -164,8 +175,9 @@ You see: **Staff accounts**, **Sync status**, and everything else.
 
 1. **Add a member of staff** — Staff accounts. Give them a role; without one they
    cannot sign in.
-2. **Reset a password** — Staff accounts → the person → set a new password. Tell
-   them to change it at first sign-in.
+2. **Replace a locked-out account** — staff change their own password with
+   **Change password**. There is no administrator password-reset screen in this
+   MVP; create a replacement account and deactivate the old one.
 3. **Revoke a lost device** — Staff accounts shows devices. Revoking one stops it
    syncing and stops it signing in. **Note:** a revoked device cannot be recovered
    from its own browser; the person must clear the site data or use a new

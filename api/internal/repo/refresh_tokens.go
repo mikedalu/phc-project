@@ -123,6 +123,27 @@ func (r *RefreshTokens) RevokeAllForUser(ctx context.Context, q Querier, userID 
 	return tag.RowsAffected(), nil
 }
 
+// RevokeAllForUserExcept revokes every live session for a user except one
+// rotation family. Password change uses it so the workstation making the change
+// is not signed out by its own success.
+func (r *RefreshTokens) RevokeAllForUserExcept(
+	ctx context.Context,
+	q Querier,
+	userID, keepFamilyID uuid.UUID,
+	reason string,
+) (int64, error) {
+	const sql = `
+        UPDATE refresh_tokens
+           SET revoked_at = now(), revoked_reason = $3
+         WHERE user_id = $1 AND family_id <> $2 AND revoked_at IS NULL`
+
+	tag, err := q.Exec(ctx, sql, userID, keepFamilyID, reason)
+	if err != nil {
+		return 0, fmt.Errorf("revoke other user sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // RevokeAllForDevice revokes every live session bound to one workstation.
 //
 // This is the other half of device revocation: marking `devices.revoked_at` stops
